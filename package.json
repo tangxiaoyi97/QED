@@ -1,0 +1,28 @@
+{
+  "name": "qed",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/index.js",
+    "preview": "NODE_ENV=production node server/index.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "dompurify": "^3.4.1",
+    "express": "4.22.1",
+    "get-intrinsic": "1.2.4",
+    "katex": "^0.16.45",
+    "marked": "^18.0.2",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "4.10.38",
+    "vite": "6.4.2",
+    "vue": "^3.5.22",
+    "vue-router": "4.6.4"
+  },
+  "overrides": {
+    "get-intrinsic": "1.2.4"
+  }
+}

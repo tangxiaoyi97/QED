@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="QED v0.1 — 刷题辅助面板、进度追踪" />
+    <meta name="theme-color" content="#ffffff" />
+    <title>QED</title>
+    <style>
+      /* Inline skeleton to avoid flash of white during boot */
+      body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; background: #fff; }
+      #app:empty { display: grid; place-items: center; min-height: 100vh; }
+      #app:empty::after {
+        content: '';
+        width: 28px; height: 28px;
+        border: 2px solid #e5e5e5;
+        border-top-color: #000;
+        border-radius: 50%;
+        animation: _sk 700ms linear infinite;
+      }
+      @keyframes _sk { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="mobile-warning">请在桌面端打开本程序以获得完整体验。<br><small style="font-weight: 400; opacity: 0.8; margin-top: 8px; display: block;">Please open this app on a desktop for the full experience.</small></div>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

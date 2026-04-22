@@ -1,0 +1,9 @@
+node_modules/
+dist/
+library/
+profile/
+user/
+tokens.json
+
+.DS_Store
+.claude/
