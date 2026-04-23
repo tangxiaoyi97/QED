@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue';
-import { STATUS_META, formatSeconds, getProgressStatus } from '../utils/format.js';
+import { MASTERY_STATUSES, STATUS_META, formatSeconds, getProgressStatus } from '../utils/format.js';
 import { useI18n } from '../composables/useI18n.js';
 
 const props = defineProps({
@@ -15,6 +15,12 @@ const emit = defineEmits(['select-status', 'start-practice']);
 
 const activeTab = ref('topic');
 const { t } = useI18n();
+
+function historyMasteryStatus(item) {
+  if (MASTERY_STATUSES.includes(item?.masteryStatus)) return item.masteryStatus;
+  if (MASTERY_STATUSES.includes(item?.status)) return item.status;
+  return '';
+}
 
 function statusCounts(ids) {
   const counts = { mastered: 0, meh: 0, baffled: 0, ignored: 0, unseen: 0 };
@@ -98,8 +104,9 @@ function recentSummary(days) {
   const byStatus = { mastered: 0, meh: 0, baffled: 0, ignored: 0 };
   const ratedItems = [];
   for (const h of items) {
-    if (Object.hasOwn(byStatus, h.status)) {
-      byStatus[h.status]++;
+    const masteryStatus = historyMasteryStatus(h);
+    if (Object.hasOwn(byStatus, masteryStatus)) {
+      byStatus[masteryStatus]++;
       ratedItems.push(h);
     }
   }

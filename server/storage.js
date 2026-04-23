@@ -172,10 +172,12 @@ export function createStorage(panelRoot, profileId = 'tangxy') {
         moveProgressStatus(progress, id, status);
       }
 
+      const masteryStatus = getProgressStatus(progress, id);
       await writeProgress(progress);
       const history = await upsertHistory({
         id,
         status,
+        masteryStatus,
         at,
         mode,
         attemptId: normalizedAttemptId,
@@ -214,11 +216,19 @@ export function createStorage(panelRoot, profileId = 'tangxy') {
 
   async function upsertHistory(entry) {
     const history = await readHistory();
+    const previous = history.find((item) => item.id === entry.id) ?? null;
+    const nextMasteryStatus = normalizeMasteryStatus(entry.masteryStatus)
+      || normalizeMasteryStatus(entry.status)
+      || normalizeMasteryStatus(previous?.masteryStatus)
+      || normalizeMasteryStatus(previous?.status)
+      || 'unseen';
+    const nextHistoryStatus = ATTEMPT_STATUSES.includes(entry.status) ? entry.status : 'skipped';
     const normalized = {
       id: entry.id,
       at: entry.at,
-      status: entry.status,
-      action: entry.status === 'skipped' ? 'viewed_answer' : 'rated',
+      status: nextHistoryStatus,
+      action: nextHistoryStatus === 'skipped' ? 'viewed_answer' : 'rated',
+      masteryStatus: nextMasteryStatus,
       mode: entry.mode,
       attemptId: entry.attemptId,
       timed: Boolean(entry.timed),
@@ -345,21 +355,28 @@ function normalizeHistory(value) {
   if (!Array.isArray(value)) return [];
   const normalized = value
     .filter((entry) => entry && typeof entry === 'object' && typeof entry.id === 'string')
-    .map((entry) => ({
-      id: entry.id,
-      at: typeof entry.at === 'string' ? entry.at : new Date().toISOString(),
-      status: ATTEMPT_STATUSES.includes(entry.status) ? entry.status : 'skipped',
-      action:
-        entry.status === 'skipped'
-          ? 'viewed_answer'
-          : typeof entry.action === 'string' && entry.action !== 'started'
-            ? entry.action
-            : 'rated',
-      mode: typeof entry.mode === 'string' ? entry.mode : 'random',
-      attemptId: typeof entry.attemptId === 'string' ? entry.attemptId : null,
-      timed: Boolean(entry.timed),
-      elapsedSeconds: Number.isFinite(Number(entry.elapsedSeconds)) ? Math.max(0, Number(entry.elapsedSeconds)) : null
-    }))
+    .map((entry) => {
+      const masteryStatus = normalizeMasteryStatus(entry.masteryStatus)
+        || normalizeMasteryStatus(entry.status)
+        || 'unseen';
+      const normalizedStatus = ATTEMPT_STATUSES.includes(entry.status) ? entry.status : 'skipped';
+      return {
+        id: entry.id,
+        at: typeof entry.at === 'string' ? entry.at : new Date().toISOString(),
+        status: normalizedStatus,
+        action:
+          normalizedStatus === 'skipped'
+            ? 'viewed_answer'
+            : typeof entry.action === 'string' && entry.action !== 'started'
+              ? entry.action
+              : 'rated',
+        masteryStatus,
+        mode: typeof entry.mode === 'string' ? entry.mode : 'random',
+        attemptId: typeof entry.attemptId === 'string' ? entry.attemptId : null,
+        timed: Boolean(entry.timed),
+        elapsedSeconds: Number.isFinite(Number(entry.elapsedSeconds)) ? Math.max(0, Number(entry.elapsedSeconds)) : null
+      };
+    })
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
   const seenQuestionIds = new Set();
@@ -508,6 +525,18 @@ function moveProgressStatus(progress, id, status) {
     progress[key] = progress[key].filter((storedId) => storedId !== id);
   }
   progress[status].unshift(id);
+}
+
+function getProgressStatus(progress, id) {
+  if (!progress || typeof id !== 'string') return 'unseen';
+  for (const status of PROGRESS_STATUSES) {
+    if (progress[status]?.includes(id)) return status;
+  }
+  return 'unseen';
+}
+
+function normalizeMasteryStatus(value) {
+  return PROGRESS_STATUSES.includes(value) ? value : '';
 }
 
 function clampInteger(value, min, max, fallback) {

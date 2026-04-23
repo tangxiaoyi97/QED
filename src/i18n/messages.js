@@ -692,7 +692,7 @@ export const messages = {
     },
     sidebar: {
       title: {
-        history: 'Historie',
+        history: 'Verlauf',
         records: 'Verlauf',
         browse: 'Kategorien',
         stats: 'Statistik',

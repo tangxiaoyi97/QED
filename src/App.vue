@@ -336,8 +336,7 @@ const randomSidebarSections = computed(() => {
     .map((entry, index) => {
       const question = questionsById.value.get(entry.id);
       if (!question) return null;
-      const storedStatus = getProgressStatus(progress.value, question.id);
-      const dotStatus = entry.status === 'skipped' ? 'skipped' : entry.status === 'ignored' ? 'ignored' : storedStatus;
+      const dotStatus = getProgressStatus(progress.value, question.id);
       const rowId = entry.attemptId || `${entry.at || 'history'}-${index}`;
       return {
         id: rowId,
@@ -961,15 +960,8 @@ async function showAnswer() {
   aiVisible.value = false;
   answerVisible.value = true;
   stopwatch.stop();
-  // Guests can view answers but nothing is recorded
-  if (effectiveGuest.value) return;
   const attemptId = ensureCurrentAttemptId(currentQuestion.value.id);
-  try {
-    const payload = await api.finishHistory(currentQuestion.value.id, 'skipped', interactionPayload(attemptId, mode.value));
-    applyRemoteState(payload);
-  } catch (error) {
-    randomBlocked.value = error.message || t('errors.saveHistoryFailed');
-  }
+  await recordViewedAttempt(currentQuestion.value.id, attemptId, mode.value);
 }
 
 function showQuestion() {
@@ -1182,16 +1174,9 @@ async function askCurrentQuestionAi() {
   if (aiBusy.value) return;
   const questionId = currentQuestion.value.id;
   stopwatch.stop();
-  // Mirror showAnswer: viewing an AI explanation counts as engaging with the
-  // question, so record an attempt (skipped) unless the guest mode forbids it.
-  if (!effectiveGuest.value) {
-    const attemptId = ensureCurrentAttemptId(questionId);
-    try {
-      applyRemoteState(await api.finishHistory(questionId, 'skipped', interactionPayload(attemptId, mode.value)));
-    } catch (error) {
-      randomBlocked.value = error.message || t('errors.saveHistoryFailed');
-    }
-  }
+  // Mirror showAnswer: asking AI explanation counts as viewing the item.
+  const attemptId = ensureCurrentAttemptId(questionId);
+  await recordViewedAttempt(questionId, attemptId, mode.value);
   await openAiForQuestion(questionId, 'main');
 }
 
@@ -1200,11 +1185,7 @@ async function askBrowseQuestionAi(id) {
   if (aiBusy.value) return;
   if (!effectiveGuest.value && questionsById.value.has(id)) {
     const attemptId = ensureBrowseAttemptId(id);
-    try {
-      applyRemoteState(await api.finishHistory(id, 'skipped', interactionPayload(attemptId, 'browse')));
-    } catch (error) {
-      randomBlocked.value = error.message || t('errors.saveHistoryFailed');
-    }
+    await recordViewedAttempt(id, attemptId, 'browse');
   }
   await openAiForQuestion(id, 'browse');
 }
@@ -1285,26 +1266,10 @@ async function toggleStar(id = currentQuestionId.value) {
 async function skipQuestion() {
   if (!currentQuestion.value) return;
   if (randomBusy.value) return;
-  if (effectiveGuest.value) {
-    await drawRandom();
-    return;
-  }
-  randomBusy.value = true;
   stopwatch.stop();
-  let shouldDrawNext = false;
-  const attemptId = ensureCurrentAttemptId(currentQuestion.value.id);
-  try {
-    const payload = await api.finishHistory(currentQuestion.value.id, 'skipped', interactionPayload(attemptId, mode.value));
-    applyRemoteState(payload);
-    shouldDrawNext = true;
-  } catch (error) {
-    randomBlocked.value = error.message || t('errors.skipFailed');
-  } finally {
-    randomBusy.value = false;
-  }
-  if (shouldDrawNext) {
-    await drawRandom({ force: true });
-  }
+  // Keep Reroll behavior aligned with toolbar "Draw Again":
+  // draw a new question without writing a history entry.
+  await drawRandom();
 }
 
 async function showBrowseAnswer(id) {
@@ -1312,14 +1277,8 @@ async function showBrowseAnswer(id) {
   cancelAiRequest();
   if (browseAiQuestionId.value === id) browseAiQuestionId.value = '';
   if (!browseAnswerIds.value.includes(id)) browseAnswerIds.value.push(id);
-  // Guests can reveal answers in browse mode — no data recorded
-  if (effectiveGuest.value) return;
   const attemptId = ensureBrowseAttemptId(id);
-  try {
-    applyRemoteState(await api.finishHistory(id, 'skipped', interactionPayload(attemptId, 'browse')));
-  } catch (error) {
-    randomBlocked.value = error.message || t('errors.saveHistoryFailed');
-  }
+  await recordViewedAttempt(id, attemptId, 'browse');
 }
 
 function showBrowseQuestion(id) {
@@ -1422,6 +1381,19 @@ function interactionPayload(attemptId, interactionMode) {
     timed: Boolean(timerEnabled.value),
     elapsedSeconds: timerEnabled.value ? stopwatch.elapsedSeconds.value : null
   };
+}
+
+async function recordViewedAttempt(questionId, attemptId, interactionMode) {
+  // Guests can view answers/AI but these actions should not write state.
+  if (effectiveGuest.value) return true;
+  try {
+    const payload = await api.finishHistory(questionId, 'skipped', interactionPayload(attemptId, interactionMode));
+    applyRemoteState(payload);
+    return true;
+  } catch (error) {
+    randomBlocked.value = error.message || t('errors.saveHistoryFailed');
+    return false;
+  }
 }
 
 function makeAttemptId(id) {
