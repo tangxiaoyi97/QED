@@ -232,6 +232,22 @@ function handleCopyClick(event) {
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, background-color 140ms ease;
 }
 
+:global(:root[data-theme='dark']) .ai-markdown :deep(.ai-code-wrap),
+:global(:root[data-theme='dark']) .ai-markdown :deep(.ai-math-block) {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+:global(:root[data-theme='dark']) .ai-markdown :deep(.ai-copy-chip) {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+:global(:root[data-theme='dark']) .ai-markdown :deep(.ai-copy-chip--ok) {
+  background: #f4f4f4;
+  color: #111111;
+}
+
 .ai-markdown :deep(.ai-math-body) {
   overflow: auto;
 }

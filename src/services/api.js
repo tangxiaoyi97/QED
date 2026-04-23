@@ -142,10 +142,13 @@ export const api = {
   checkProfile(id) {
     return fetchJson(`/api/profiles/check/${id}`);
   },
-  createProfile(id, token) {
+  createProfile(id, credential) {
+    const body = typeof credential === 'string'
+      ? { id, token: credential }
+      : { id, ...(credential ?? {}) };
     return fetchJson('/api/profiles/create', {
       method: 'POST',
-      body: JSON.stringify({ id, token })
+      body: JSON.stringify(body)
     });
   }
 };

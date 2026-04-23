@@ -45,6 +45,7 @@ const props = defineProps({
 const emit = defineEmits(['send']);
 const draft = ref('');
 const scroller = ref(null);
+const composing = ref(false);
 const { t } = useI18n();
 
 // Distinguish "loading first reply for this question" (no messages yet) from
@@ -73,7 +74,7 @@ watch(
 
 function submit() {
   const text = draft.value.trim();
-  if (!text || props.loading || !props.canChat) return;
+  if (!text || composing.value || props.loading || props.decompressing || !props.canChat) return;
   emit('send', text);
   draft.value = '';
 }
@@ -161,10 +162,12 @@ function messageTime(iso) {
         <textarea
           v-model="draft"
           :placeholder="t('ai.inputPlaceholder')"
-          :disabled="loading || !canChat"
+          :disabled="loading || decompressing || !canChat"
+          @compositionstart="composing = true"
+          @compositionend="composing = false"
           @keydown.enter.exact.prevent="submit"
         />
-        <button class="pill-button pill-button--dark" type="button" :disabled="loading || !canChat || !draft.trim()" @click="submit">
+        <button class="pill-button pill-button--dark" type="button" :disabled="loading || decompressing || !canChat || !draft.trim()" @click="submit">
           {{ loading ? t('ai.thinking') : t('ai.send') }}
         </button>
       </footer>

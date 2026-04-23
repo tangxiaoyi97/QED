@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readTokens, writeTokens, generateToken } from './tokens.js';
+import { clearSpecialToken, generateSpecialToken, generateToken, readTokens, setSpecialToken, writeTokens } from './tokens.js';
 import { createStorage } from './storage.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +18,12 @@ async function run() {
       break;
     case 'token':
       await createToken();
+      break;
+    case 'special-token':
+      await upsertSpecialToken(args[0]);
+      break;
+    case 'clear-special-token':
+      await clearSpecialTokenCommand();
       break;
     case 'remove':
       await removeProfile(args[0]);
@@ -41,6 +47,8 @@ Usage: node server/cli.js <command> [args]
 Commands:
   list                  List all user profiles
   token                 Generate a new 11-char invitation code
+  special-token [code]  Generate or overwrite the single hidden special code
+  clear-special-token   Remove the hidden special code
   remove <id>           Rename profile directory to <id>_del (back up)
   rename <old> <new>    Rename a profile directory
   reset <id>            Reset profile records (overwrite with defaults)
@@ -77,36 +85,58 @@ async function clearTokens() {
   console.log('All pending tokens cleared.');
 }
 
+async function upsertSpecialToken(rawCode) {
+  const code = rawCode || generateSpecialToken();
+  try {
+    await setSpecialToken(appRoot, code);
+  } catch (error) {
+    console.error(`Error: ${error?.message || 'Invalid special code.'}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`Special Code: ${code}`);
+  console.log('Only this hidden special code is active; the previous one was overwritten.');
+}
+
+async function clearSpecialTokenCommand() {
+  await clearSpecialToken(appRoot);
+  console.log('Hidden special code cleared.');
+}
+
 async function removeProfile(id) {
-  if (!id) return console.error('Error: Profile ID required.');
-  const src = path.join(profileRoot, id);
-  if (!fs.existsSync(src)) return console.error(`Error: Profile "${id}" not found.`);
+  const safeId = normalizeProfileId(id);
+  if (!safeId) return console.error('Error: valid profile ID required.');
+  const src = path.join(profileRoot, safeId);
+  if (!fs.existsSync(src)) return console.error(`Error: Profile "${safeId}" not found.`);
   
-  const dest = path.join(profileRoot, `${id}_del`);
+  const dest = path.join(profileRoot, `${safeId}_del`);
   if (fs.existsSync(dest)) {
     fs.rmSync(dest, { recursive: true, force: true });
-    console.log(`Removed existing backup at "${id}_del"`);
+    console.log(`Removed existing backup at "${safeId}_del"`);
   }
   
   fs.renameSync(src, dest);
-  console.log(`Profile "${id}" has been moved to "${id}_del"`);
+  console.log(`Profile "${safeId}" has been moved to "${safeId}_del"`);
 }
 
 async function renameProfile(oldId, newId) {
-  if (!oldId || !newId) return console.error('Usage: node server/cli.js rename <oldId> <newId>');
-  const src = path.join(profileRoot, oldId);
-  const dest = path.join(profileRoot, newId);
-  if (!fs.existsSync(src)) return console.error(`Error: Profile "${oldId}" not found.`);
-  if (fs.existsSync(dest)) return console.error(`Error: Destination "${newId}" already exists.`);
+  const safeOldId = normalizeProfileId(oldId);
+  const safeNewId = normalizeProfileId(newId);
+  if (!safeOldId || !safeNewId) return console.error('Usage: node server/cli.js rename <oldId> <newId>');
+  const src = path.join(profileRoot, safeOldId);
+  const dest = path.join(profileRoot, safeNewId);
+  if (!fs.existsSync(src)) return console.error(`Error: Profile "${safeOldId}" not found.`);
+  if (fs.existsSync(dest)) return console.error(`Error: Destination "${safeNewId}" already exists.`);
   
   fs.renameSync(src, dest);
-  console.log(`Renamed "${oldId}" to "${newId}"`);
+  console.log(`Renamed "${safeOldId}" to "${safeNewId}"`);
 }
 
 async function resetProfile(id) {
-  if (!id) return console.error('Error: Profile ID required.');
-  const pDir = path.join(profileRoot, id);
-  if (!fs.existsSync(pDir)) return console.error(`Error: Profile "${id}" not found.`);
+  const safeId = normalizeProfileId(id);
+  if (!safeId) return console.error('Error: valid profile ID required.');
+  const pDir = path.join(profileRoot, safeId);
+  if (!fs.existsSync(pDir)) return console.error(`Error: Profile "${safeId}" not found.`);
   
   // To reset, we delete key data files and re-ensure
   const files = ['history.json', 'progress.json', 'probehistory.json', 'config.json'];
@@ -115,20 +145,31 @@ async function resetProfile(id) {
     if (fs.existsSync(fPath)) fs.unlinkSync(fPath);
   });
   
-  const storage = createStorage(appRoot, id);
+  const storage = createStorage(appRoot, safeId);
   await storage.ensure();
-  console.log(`Profile "${id}" data has been reset to defaults.`);
+  console.log(`Profile "${safeId}" data has been reset to defaults.`);
 }
 
 async function createProfileAdmin(id) {
-  if (!id) return console.error('Error: Profile ID required.');
-  const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '');
+  const safeId = normalizeProfileId(id);
+  if (!safeId) return console.error('Error: valid profile ID required.');
   const pDir = path.join(profileRoot, safeId);
   if (fs.existsSync(pDir)) return console.error(`Error: Profile "${safeId}" already exists.`);
   
   const storage = createStorage(appRoot, safeId);
   await storage.ensure();
   console.log(`Profile "${safeId}" created successfully via admin.`);
+}
+
+function normalizeProfileId(raw) {
+  const safe = String(raw ?? '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase();
+  if (!/^[a-z0-9_-]{1,40}$/.test(safe)) return '';
+  if (['guest', '.', '..', 'con', 'prn', 'aux', 'nul'].includes(safe)) return '';
+  if (/^com[1-9]$/.test(safe) || /^lpt[1-9]$/.test(safe)) return '';
+  return safe;
 }
 
 run().catch(err => {

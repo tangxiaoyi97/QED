@@ -12,6 +12,8 @@ import { createStorage, PROGRESS_STATUSES } from './storage.js';
 import { createSearchIndex } from './search-index.js';
 import { getScoreTiers } from './score-parser.js';
 import { validateToken } from './tokens.js';
+import { loadPdfjs } from './pdfjs.js';
+import { clampInteger, sanitizeModelName } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const appRoot = path.resolve(path.dirname(__filename), '..');
@@ -21,6 +23,7 @@ const profileRoot = path.join(appRoot, 'profile');
 const userRoot = path.join(appRoot, 'user');
 const serverConfigPath = path.join(userRoot, 'server-config.json');
 const defaultPromptPath = path.join(appRoot, 'defaultprompt.txt');
+const promptsRoot = path.join(appRoot, 'server', 'prompts');
 const DEFAULT_LIBRARY_ID = 'library';
 const RESERVED_PROFILE_NAMES = new Set(['guest', '.', '..', 'con', 'prn', 'aux', 'nul']);
 const READ_ONLY_BLOCKED_PATHS = new Set([
@@ -32,8 +35,7 @@ const READ_ONLY_BLOCKED_PATHS = new Set([
   '/exam-drafts/save',
   '/exam-drafts/delete',
   '/ai/open',
-  '/ai/message',
-  '/profiles/create'
+  '/ai/message'
 ]);
 
 if (!fs.existsSync(profileRoot)) {
@@ -153,6 +155,21 @@ app.use(async (req, res, next) => {
     if (req.isGuest) {
       req.storage = guestStorage;
       return next();
+    }
+
+    if (!profileDirectoryExists(req.profileId)) {
+      if (allowsMissingProfile(req.path)) {
+        req.isGuest = true;
+        req.profileId = 'guest';
+        req.readOnly = true;
+        req.storage = guestStorage;
+        return next();
+      }
+
+      return res.status(404).json({
+        error: 'PROFILE_NOT_FOUND',
+        message: '用户不存在，请先通过设置页使用邀请码创建账户。'
+      });
     }
 
     req.storage = getStorage(req.profileId);
@@ -366,7 +383,7 @@ app.post('/api/config', async (req, response, next) => {
     const current = await req.storage.readConfig();
     if (req.isGuest) return response.json({ config: current, aiMeta: buildAiMeta(current, req), server: buildServerState(req) });
 
-    const { locale, aiApiKey, aiModel } = req.body ?? {};
+    const { locale, aiApiKey, aiModel, aiCustomPrompt, theme } = req.body ?? {};
     const updated = { ...current };
     if (typeof locale === 'string' && locale.length > 0 && locale.length <= 32) {
       updated.locale = locale;
@@ -374,7 +391,14 @@ app.post('/api/config', async (req, response, next) => {
     updated.ai = {
       ...(updated.ai ?? {}),
       apiKey: typeof aiApiKey === 'string' ? aiApiKey.trim().slice(0, 512) : updated.ai?.apiKey ?? '',
-      model: sanitizeModelName(typeof aiModel === 'string' ? aiModel : updated.ai?.model ?? DEFAULT_AI_MODEL, DEFAULT_AI_MODEL)
+      model: sanitizeModelName(typeof aiModel === 'string' ? aiModel : updated.ai?.model ?? DEFAULT_AI_MODEL, DEFAULT_AI_MODEL),
+      customPrompt: typeof aiCustomPrompt === 'string'
+        ? aiCustomPrompt.trim().slice(0, 12000)
+        : updated.ai?.customPrompt ?? ''
+    };
+    updated.ui = {
+      ...(updated.ui ?? {}),
+      theme: theme === 'dark' ? 'dark' : theme === 'light' ? 'light' : updated.ui?.theme ?? 'light'
     };
     await req.storage.writeConfig(updated);
     const stored = await req.storage.readConfig();
@@ -617,7 +641,7 @@ app.post('/api/ai/open', async (req, response, next) => {
       const assistantContent = await requestAiCompletion({
         apiKey: aiApiKey,
         model,
-        systemPrompt: await readDefaultPrompt(promptLocale),
+        systemPrompt: await resolveSystemPrompt(config, promptLocale),
         userPrompt: initialPrompt
       });
       conversation.messages.push({
@@ -733,7 +757,7 @@ app.post('/api/ai/message', async (req, response, next) => {
       const assistantContent = await requestAiCompletion({
         apiKey: aiApiKey,
         model: effectiveModel,
-        systemPrompt: await readDefaultPrompt(promptLocale),
+        systemPrompt: await resolveSystemPrompt(config, promptLocale),
         userPrompt
       });
       assistantMessage = {
@@ -918,7 +942,7 @@ app.get('/api/profiles/check/:id', (req, res) => {
   }
   const safeId = normalizeProfileId(req.params.id, { fallback: '', allowGuest: false, strict: true });
   if (!safeId) return res.status(400).json({ error: 'INVALID_ID' });
-  const exists = fs.existsSync(path.join(profileRoot, safeId));
+  const exists = profileDirectoryExists(safeId);
   res.json({ exists, id: safeId });
 });
 
@@ -929,15 +953,23 @@ app.post('/api/profiles/create', async (req, res, next) => {
       return res.status(403).json({ error: 'SHOWCASE_MODE', message: '展示模式下已关闭登录功能。' });
     }
 
-    const { id, token } = req.body;
+    const { id, token, specialTokenHash } = req.body ?? {};
     const safeId = normalizeProfileId(id, { fallback: '', allowGuest: false, strict: true });
     if (!safeId) return res.status(400).json({ error: 'INVALID_ID' });
     
-    if (fs.existsSync(path.join(profileRoot, safeId))) {
+    if (profileDirectoryExists(safeId)) {
       return res.status(400).json({ error: 'ALREADY_EXISTS' });
     }
 
-    const isValid = await validateToken(appRoot, token);
+    const hasNormalToken = typeof token === 'string' && token.trim().length > 0;
+    const hasSpecialTokenHash = typeof specialTokenHash === 'string' && specialTokenHash.trim().length > 0;
+    if (hasNormalToken === hasSpecialTokenHash) {
+      return res.status(400).json({ error: 'INVALID_TOKEN', message: '邀请码无效或已过期。' });
+    }
+
+    const isValid = await validateToken(appRoot, hasNormalToken
+      ? { token: token.trim() }
+      : { specialTokenHash: specialTokenHash.trim().toLowerCase() });
     if (!isValid) {
       return res.status(403).json({ error: 'INVALID_TOKEN', message: '邀请码无效或已过期。' });
     }
@@ -1083,15 +1115,34 @@ async function refreshCatalog(libraryId = DEFAULT_LIBRARY_ID, force = false, exp
       libraryId: safeLibraryId,
       path: resolvedPath,
       catalog: null,
-      loadedAt: 0
+      loadedAt: 0,
+      refreshing: null
     };
     catalogCache.set(cacheKey, state);
   }
 
-  if (!force && state.catalog && Date.now() - state.loadedAt < CATALOG_REFRESH_INTERVAL_MS) {
+  const fresh = state.catalog && Date.now() - state.loadedAt < CATALOG_REFRESH_INTERVAL_MS;
+  if (!force && fresh) return state.catalog;
+
+  if (!force && state.catalog) {
+    if (!state.refreshing) {
+      state.refreshing = loadCatalogIntoState(state, resolvedPath, { cacheKey, safeLibraryId, allowIndexBuild })
+        .catch((error) => console.error('[catalog] background refresh failed:', error.message))
+        .finally(() => {
+          state.refreshing = null;
+        });
+    }
     return state.catalog;
   }
 
+  if (state.refreshing) await state.refreshing;
+  if (force || !state.catalog) {
+    await loadCatalogIntoState(state, resolvedPath, { cacheKey, safeLibraryId, allowIndexBuild });
+  }
+  return state.catalog;
+}
+
+async function loadCatalogIntoState(state, resolvedPath, { cacheKey, safeLibraryId, allowIndexBuild }) {
   state.catalog = await loadCatalog(appRoot, resolvedPath);
   state.loadedAt = Date.now();
 
@@ -1124,9 +1175,23 @@ function getSearchIndex(cacheKey, libraryId, libraryPath) {
   return index;
 }
 
+const progressSetCache = new WeakMap();
+
+function getProgressSets(progress) {
+  if (!progress || typeof progress !== 'object') return null;
+  const cached = progressSetCache.get(progress);
+  if (cached) return cached;
+  const sets = new Map(PROGRESS_STATUSES.map((status) => [status, new Set(progress[status] ?? [])]));
+  progressSetCache.set(progress, sets);
+  return sets;
+}
+
 function getProgressStatus(progress, id) {
+  if (!progress || typeof id !== 'string') return 'unseen';
+  const sets = getProgressSets(progress);
+  if (!sets) return 'unseen';
   for (const status of PROGRESS_STATUSES) {
-    if (progress[status]?.includes(id)) return status;
+    if (sets.get(status)?.has(id)) return status;
   }
   return 'unseen';
 }
@@ -1179,12 +1244,6 @@ function toSet(value) {
 function toNumberSet(value) {
   if (!Array.isArray(value) || value.length === 0) return null;
   return new Set(value.map(Number).filter(Number.isFinite));
-}
-
-function clampInteger(value, min, max, fallback) {
-  const numeric = Number(value);
-  if (!Number.isInteger(numeric)) return fallback;
-  return Math.min(max, Math.max(min, numeric));
 }
 
 function resolveGitCommit(root) {
@@ -1253,6 +1312,31 @@ function readServerConfig() {
   } catch {
     return normalizeServerConfig({});
   }
+}
+
+function profileDirectoryExists(profileId) {
+  const safeId = normalizeProfileId(profileId, { fallback: '', allowGuest: false, strict: true });
+  if (!safeId) return false;
+  try {
+    return fs.statSync(path.join(profileRoot, safeId)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function allowsMissingProfile(requestPath) {
+  const apiPath = String(requestPath || '').replace(/^\/api(?=\/|$)/, '') || '/';
+  if (['/health', '/about', '/catalog', '/catalog/refresh', '/search', '/search/status'].includes(apiPath)) {
+    return true;
+  }
+  return (
+    apiPath.startsWith('/profiles/check/') ||
+    apiPath === '/profiles/create' ||
+    apiPath.startsWith('/score-tiers/') ||
+    apiPath.startsWith('/pdf/') ||
+    apiPath.startsWith('/download/question/') ||
+    apiPath.startsWith('/download/file/')
+  );
 }
 
 function buildAiMeta(config, req = null) {
@@ -1455,14 +1539,6 @@ async function mergePdfFiles(filePaths) {
   }
   const merged = await output.save();
   return Buffer.from(merged);
-}
-
-function sanitizeModelName(value, fallback = DEFAULT_AI_MODEL) {
-  if (typeof value !== 'string') return fallback;
-  const trimmed = value.trim();
-  if (!trimmed) return fallback;
-  if (!/^[a-zA-Z0-9._:-]{2,64}$/.test(trimmed)) return fallback;
-  return trimmed;
 }
 
 // Use a broadly supported effort to avoid model-specific validation errors
@@ -1674,8 +1750,8 @@ function makeMessageId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const PDF_TEXT_CACHE_LIMIT = 96;
 const pdfTextCache = new Map();
-let pdfJsModulePromise = null;
 
 const PROMPT_STRINGS = {
   'zh-CN': {
@@ -1743,12 +1819,16 @@ async function extractPdfText(filePath) {
     const stat = await fsp.stat(filePath);
     const cacheKey = `${filePath}:${stat.mtimeMs}:${stat.size}`;
     const cached = pdfTextCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached !== undefined) {
+      pdfTextCache.delete(cacheKey);
+      pdfTextCache.set(cacheKey, cached);
+      return cached;
+    }
     for (const key of pdfTextCache.keys()) {
       if (key.startsWith(`${filePath}:`)) pdfTextCache.delete(key);
     }
 
-    const { getDocument } = await loadPdfJs();
+    const { getDocument } = await loadPdfjs();
     const buffer = await fsp.readFile(filePath);
     const loadingTask = getDocument({ data: new Uint8Array(buffer) });
     const pdf = await loadingTask.promise;
@@ -1767,7 +1847,7 @@ async function extractPdfText(filePath) {
       if (currentLength >= MAX_PDF_TEXT_CHARS) break;
     }
     const normalized = chunks.join('\n').replace(/\s+/g, ' ').trim().slice(0, MAX_PDF_TEXT_CHARS);
-    pdfTextCache.set(cacheKey, normalized);
+    setPdfTextCache(cacheKey, normalized);
     return normalized;
   } catch (error) {
     console.warn('[ai] failed to extract pdf text:', path.basename(filePath), error.message);
@@ -1775,84 +1855,20 @@ async function extractPdfText(filePath) {
   }
 }
 
-async function loadPdfJs() {
-  if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+function setPdfTextCache(key, value) {
+  if (pdfTextCache.has(key)) pdfTextCache.delete(key);
+  pdfTextCache.set(key, value);
+  while (pdfTextCache.size > PDF_TEXT_CACHE_LIMIT) {
+    const oldestKey = pdfTextCache.keys().next().value;
+    if (!oldestKey) break;
+    pdfTextCache.delete(oldestKey);
   }
-  return pdfJsModulePromise;
 }
 
-// Locale → (language name, worked-example prompt). Each prompt is written so
-// the model answers in that language but always preserves German math-exam
-// terminology (Teil, Aufgabe, Punkte, etc.) verbatim. LaTeX delimiters match
-// what our front-end renderer expects: $...$ inline, $$...$$ display.
-const AI_PROMPTS = {
-  'zh-CN': [
-    '你是一名奥地利 AHS SRDP 数学考试辅导助教，服务对象是正在刷题的学生。',
-    '',
-    '硬性规则：',
-    '1. 严格基于提供的「题目文本」和「答案/评分文本」作答，不得编造题目中未出现的条件或数值。',
-    '2. 若题目或答案缺失关键信息，先明确指出缺失项，再给出最合理的假设后的解法。',
-    '3. 默认使用简体中文回答；德语考试术语（Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG）保留原文。',
-    '4. 所有公式使用 LaTeX：行内 $...$，独立 $$...$$；不要用 \\\\[ \\\\] 或代码块包数学。',
-    '5. 单位、变量名与德语原卷一致（如 x, k, n, s, p），不要改名。',
-    '6. 首次回答要精炼，不重复整段题干。默认控制在 220–420 中文字（用户要求详细时可扩展）。',
-    '7. 若是多小题（如 Teil 2），按 a)、b)、c) 分小节回答。',
-    '8. 输出结束前检查 Markdown 与 LaTeX 是否闭合，避免半截的 **、$、$$、列表项。',
-    '',
-    '首次回答的固定结构：',
-    '- **题目理解**：1–3 行概括条件与求解目标。',
-    '- **解题步骤**：按序编号；每一步写动作与公式。',
-    '- **评分点**：按可得 Punkt 分条（1 Punkt / 2 Punkte ...）。',
-    '- **易错点**：最多 5 条，必须具体。',
-    '- **一句话总结**：便于记忆。',
-    '',
-    '追问规则：用户继续提问时，仅回答追问本身（3–6 条要点或短段落），不要重复整题长解。'
-  ].join('\n'),
-  'en': [
-    'You are a tutor for the Austrian AHS SRDP mathematics exam, helping a student practice.',
-    '',
-    'Hard rules:',
-    '1. Ground every claim in the provided question text and answer/rubric text. Do not invent conditions or numbers.',
-    '2. If key information is missing, state what is missing first, then proceed with the most reasonable assumption.',
-    '3. Reply in English. Keep German exam terms verbatim (Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG).',
-    '4. Use LaTeX for all formulas: $...$ inline and $$...$$ display. Do not use \\\\[ \\\\] or fenced code for math.',
-    '5. Preserve original variable names and units from the source (x, k, n, s, p, ...).',
-    '6. Initial answer should be concise and non-redundant (about 180–320 words by default).',
-    '7. For multi-part tasks (especially Teil 2), organise by subparts such as a), b), c).',
-    '8. Before finishing, ensure Markdown and LaTeX delimiters are balanced (no dangling **, $, $$, or broken list items).',
-    '',
-    'Fixed structure for the initial answer:',
-    '- **Understanding**: 1–3 lines summarising the givens and the ask.',
-    '- **Solution steps**: numbered; each step states the action and the formula.',
-    '- **Scoring points**: one bullet per Punkt that can be earned (1 Punkt / 2 Punkte ...).',
-    '- **Common mistakes**: at most 5 items, each concrete.',
-    '- **One-line takeaway**: short and memorable.',
-    '',
-    'Follow-ups: answer only the asked follow-up in a compact form (3–6 bullets or short paragraphs), without repeating the full solution.'
-  ].join('\n'),
-  'de': [
-    'Du bist Tutor für die österreichische AHS-SRDP-Mathematikmatura und unterstützt eine Schülerin oder einen Schüler beim Üben.',
-    '',
-    'Harte Regeln:',
-    '1. Jede Aussage muss durch den gegebenen „Aufgabentext“ und die „Lösung/Bewertung“ belegt sein. Keine Bedingungen oder Zahlen erfinden.',
-    '2. Fehlen wichtige Informationen, benenne die Lücke zuerst und rechne dann mit der plausibelsten Annahme weiter.',
-    '3. Antworte auf Deutsch. Matura-Fachbegriffe (Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG) wörtlich übernehmen.',
-    '4. Formeln in LaTeX: $...$ inline, $$...$$ abgesetzt. Keine \\\\[ \\\\]-Klammern und keine Codeblöcke für Mathematik.',
-    '5. Variablen- und Einheitennamen (x, k, n, s, p, ...) aus der Originalaufgabe unverändert beibehalten.',
-    '6. Die Erstantwort soll prägnant sein (standardmäßig etwa 180–320 Wörter).',
-    '7. Bei mehrteiligen Aufgaben (besonders Teil 2) nach Teilaufgaben gliedern, z. B. a), b), c).',
-    '8. Vor dem Abschluss prüfen, dass Markdown und LaTeX vollständig sind (keine offenen **, $, $$ oder abgebrochenen Listen).',
-    '',
-    'Feste Struktur der Erstantwort:',
-    '- **Aufgabenverständnis**: 1–3 Zeilen mit Gegebenem und Gesuchtem.',
-    '- **Lösungsschritte**: durchnummeriert; pro Schritt Aktion und Formel.',
-    '- **Punkte**: je vergebbarem Punkt einen Spiegelstrich (1 Punkt / 2 Punkte ...).',
-    '- **Häufige Fehler**: maximal 5, konkret formuliert.',
-    '- **Merksatz**: eine Zeile zum Einprägen.',
-    '',
-    'Rückfragen: nur die konkrete Rückfrage kompakt beantworten (3–6 Stichpunkte oder kurze Absätze), ohne die ganze Lösung zu wiederholen.'
-  ].join('\n')
+const PROMPT_FILES = {
+  'zh-CN': 'zh-CN.txt',
+  en: 'en.txt',
+  de: 'de.txt'
 };
 
 function normalizeLocale(value) {
@@ -1885,7 +1901,24 @@ async function readDefaultPrompt(locale = 'zh-CN') {
       // fall through to built-in prompt
     }
   }
-  return AI_PROMPTS[key] ?? AI_PROMPTS['zh-CN'];
+  return (await readPromptFile(key)) || (await readPromptFile('zh-CN')) || '';
+}
+
+async function resolveSystemPrompt(config, locale = 'zh-CN') {
+  const customPrompt = typeof config?.ai?.customPrompt === 'string' ? config.ai.customPrompt.trim() : '';
+  if (customPrompt) return customPrompt.slice(0, 12000);
+  return readDefaultPrompt(locale);
+}
+
+async function readPromptFile(localeKey) {
+  const filename = PROMPT_FILES[localeKey] ?? PROMPT_FILES['zh-CN'];
+  try {
+    const raw = await fsp.readFile(path.join(promptsRoot, filename), 'utf8');
+    const trimmed = raw.trim();
+    return trimmed ? trimmed.slice(0, 12000) : '';
+  } catch {
+    return '';
+  }
 }
 
 const AI_REQUEST_TIMEOUT_MS = 60_000;

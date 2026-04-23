@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { clampInteger, sanitizeModelName } from './utils.js';
 
 export const PROGRESS_STATUSES = ['mastered', 'meh', 'baffled', 'ignored'];
 export const ATTEMPT_STATUSES = [...PROGRESS_STATUSES, 'skipped'];
@@ -12,7 +13,8 @@ const DEFAULT_CONFIG = {
   examMinutes: 270,
   ai: {
     apiKey: '',
-    model: 'gpt-5.4-mini'
+    model: 'gpt-5.4-mini',
+    customPrompt: ''
   },
   randomWeights: {
     unseen: 1,
@@ -22,7 +24,8 @@ const DEFAULT_CONFIG = {
   ui: {
     defaultMode: 'random',
     snapScroll: true,
-    autoAdvanceAfterRating: true
+    autoAdvanceAfterRating: true,
+    theme: 'light'
   }
 };
 
@@ -46,7 +49,7 @@ const DEFAULT_AI_HISTORY = {
   conversations: []
 };
 
-export function createStorage(panelRoot, profileId = 'tangxy') {
+export function createStorage(panelRoot, profileId = 'mathlover') {
   const profileDir = path.join(panelRoot, 'profile', profileId);
   const historyPath = path.join(profileDir, 'history.json');
   const progressPath = path.join(profileDir, 'progress.json');
@@ -301,6 +304,7 @@ function normalizeConfig(value) {
   merged.probeHistoryLimit = clampInteger(merged.probeHistoryLimit, 1, 2000, DEFAULT_CONFIG.probeHistoryLimit);
   merged.examMinutes = clampInteger(merged.examMinutes, 1, 600, DEFAULT_CONFIG.examMinutes);
   merged.ai = normalizeAiConfig(merged.ai);
+  merged.ui = normalizeUiConfig(merged.ui);
   delete merged.randomWeights.understood;
   merged.version = DEFAULT_CONFIG.version;
   return merged;
@@ -311,9 +315,25 @@ function normalizeAiConfig(value) {
   if (!value || typeof value !== 'object') return fallback;
   const apiKey = typeof value.apiKey === 'string' ? value.apiKey.trim() : '';
   const model = typeof value.model === 'string' ? value.model.trim() : fallback.model;
+  const customPrompt = typeof value.customPrompt === 'string' ? value.customPrompt.trim() : '';
   return {
     apiKey: apiKey.slice(0, 512),
-    model: sanitizeModelName(model, fallback.model)
+    model: sanitizeModelName(model, fallback.model),
+    customPrompt: customPrompt.slice(0, 12000)
+  };
+}
+
+function normalizeUiConfig(value) {
+  const fallback = structuredClone(DEFAULT_CONFIG.ui);
+  if (!value || typeof value !== 'object') return fallback;
+  return {
+    ...fallback,
+    defaultMode: typeof value.defaultMode === 'string' ? value.defaultMode : fallback.defaultMode,
+    snapScroll: typeof value.snapScroll === 'boolean' ? value.snapScroll : fallback.snapScroll,
+    autoAdvanceAfterRating: typeof value.autoAdvanceAfterRating === 'boolean'
+      ? value.autoAdvanceAfterRating
+      : fallback.autoAdvanceAfterRating,
+    theme: value.theme === 'dark' ? 'dark' : 'light'
   };
 }
 
@@ -520,14 +540,6 @@ function normalizeAiRole(role) {
   return 'user';
 }
 
-function sanitizeModelName(value, fallback = 'gpt-5.4-mini') {
-  if (typeof value !== 'string') return fallback;
-  const trimmed = value.trim();
-  if (!trimmed) return fallback;
-  if (!/^[a-zA-Z0-9._:-]{2,64}$/.test(trimmed)) return fallback;
-  return trimmed;
-}
-
 function sanitizePreview(value) {
   if (typeof value !== 'string') return '';
   return value.replace(/\s+/g, ' ').trim().slice(0, 220);
@@ -540,22 +552,29 @@ function moveProgressStatus(progress, id, status) {
   progress[status].unshift(id);
 }
 
+const progressSetCache = new WeakMap();
+
+function getProgressSets(progress) {
+  if (!progress || typeof progress !== 'object') return null;
+  const cached = progressSetCache.get(progress);
+  if (cached) return cached;
+  const sets = new Map(PROGRESS_STATUSES.map((status) => [status, new Set(progress[status] ?? [])]));
+  progressSetCache.set(progress, sets);
+  return sets;
+}
+
 function getProgressStatus(progress, id) {
   if (!progress || typeof id !== 'string') return 'unseen';
+  const sets = getProgressSets(progress);
+  if (!sets) return 'unseen';
   for (const status of PROGRESS_STATUSES) {
-    if (progress[status]?.includes(id)) return status;
+    if (sets.get(status)?.has(id)) return status;
   }
   return 'unseen';
 }
 
 function normalizeMasteryStatus(value) {
   return PROGRESS_STATUSES.includes(value) ? value : '';
-}
-
-function clampInteger(value, min, max, fallback) {
-  const number = Number(value);
-  if (!Number.isInteger(number)) return fallback;
-  return Math.min(max, Math.max(min, number));
 }
 
 function roundHalf(value) {

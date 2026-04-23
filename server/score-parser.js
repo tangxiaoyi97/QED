@@ -1,13 +1,8 @@
 import fs from 'node:fs/promises';
+import { loadPdfjs } from './pdfjs.js';
 
 // Session-scoped in-memory cache: questionId → number[] (sorted score tiers, empty = fallback)
 const CACHE = new Map();
-
-let pdfjsPromise = null;
-function loadPdfjs() {
-  if (!pdfjsPromise) pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
-  return pdfjsPromise;
-}
 
 async function extractText(filePath) {
   const { getDocument } = await loadPdfjs();

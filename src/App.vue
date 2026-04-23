@@ -11,6 +11,7 @@ import { useI18n } from './composables/useI18n.js';
 import { useStopwatch } from './composables/useStopwatch.js';
 import { useProfile } from './composables/useProfile.js';
 import { useLibrary } from './composables/useLibrary.js';
+import { useTheme } from './composables/useTheme.js';
 import { api } from './services/api.js';
 import {
   RANDOM_STATUS_FILTERS,
@@ -39,6 +40,7 @@ const AiChatPanel = defineAsyncComponent(() => import('./components/AiChatPanel.
 const { locale, localeOptions, setLocale, t } = useI18n();
 const { profileId, isGuest, saveProfile } = useProfile();
 const { libraryId, saveLibrary } = useLibrary();
+const { theme, setTheme } = useTheme();
 const route = useRoute();
 const router = useRouter();
 
@@ -125,6 +127,7 @@ const aiRequestState = reactive({
   seq: 0,
   controller: null
 });
+let aiConversationLoadSeq = 0;
 
 const appInfoLoading = ref(false);
 const appInfoRefreshing = ref(false);
@@ -577,7 +580,7 @@ async function bootstrap() {
         serverState.value = catalogData.server;
         if (catalogData.server.activeLibraryId) saveLibrary(catalogData.server.activeLibraryId);
       }
-      config.value = { historyLimit: 500, examMinutes: 270, locale: locale.value, ui: {} };
+      config.value = { historyLimit: 500, examMinutes: 270, locale: locale.value, ui: { theme: theme.value } };
       aiMeta.value = {
         hasServerApiKey: false,
         hasUserApiKey: false,
@@ -595,6 +598,7 @@ async function bootstrap() {
       catalog.value = payload.catalog;
       config.value = payload.state.config;
       if (config.value.locale) setLocale(config.value.locale);
+      if (config.value.ui?.theme) setTheme(config.value.ui.theme);
       progress.value = payload.state.progress;
       history.value = payload.state.history;
       probeHistory.value = payload.state.probeHistory;
@@ -611,6 +615,17 @@ async function bootstrap() {
     }
   } catch (error) {
     if (gen !== _bootstrapGen) return;
+    if (error?.payload?.error === 'PROFILE_NOT_FOUND') {
+      saveProfile('guest');
+      const targetPath = buildRoutePath('guest', mode.value);
+      if (route.path !== targetPath) {
+        await router.replace(targetPath);
+      }
+      if (gen === _bootstrapGen) {
+        await bootstrap();
+      }
+      return;
+    }
     bootError.value = error.message || t('errors.startupFailed');
   } finally {
     if (gen === _bootstrapGen) loading.value = false;
@@ -694,7 +709,10 @@ function idsToQuestions(ids) {
 }
 
 function applyRemoteState(payload) {
-  if (payload.config) config.value = payload.config;
+  if (payload.config) {
+    config.value = payload.config;
+    if (payload.config.ui?.theme) setTheme(payload.config.ui.theme);
+  }
   if (payload.progress) progress.value = payload.progress;
   if (payload.history) history.value = payload.history;
   if (payload.probeHistory) probeHistory.value = payload.probeHistory;
@@ -780,6 +798,24 @@ async function handleLocaleChange(nextLocale) {
     if (payload?.config) config.value = payload.config;
   } catch {
     // Non-fatal: localStorage already holds the new locale so the UI stays consistent.
+  }
+}
+
+async function handleThemeChange(nextTheme) {
+  const safeTheme = setTheme(nextTheme === 'dark' ? 'dark' : 'light');
+  config.value = {
+    ...config.value,
+    ui: {
+      ...(config.value.ui ?? {}),
+      theme: safeTheme
+    }
+  };
+  if (effectiveGuest.value) return;
+  try {
+    const payload = await api.setConfig({ theme: safeTheme });
+    applyRemoteState(payload);
+  } catch {
+    // Theme is already persisted locally; server sync can retry on the next settings save.
   }
 }
 
@@ -1057,6 +1093,7 @@ async function loadAiConversationById(conversationId) {
   if (!conversationId) return null;
   const already = aiConversations.value.get(conversationId);
   if (already) return already;
+  const loadSeq = ++aiConversationLoadSeq;
   aiDecompressing.value = true;
   aiBlocked.value = '';
   try {
@@ -1064,10 +1101,14 @@ async function loadAiConversationById(conversationId) {
     applyAiPayload(payload);
     return payload?.conversation ?? null;
   } catch (error) {
-    aiBlocked.value = error.message || t('errors.requestFailed');
+    if (loadSeq === aiConversationLoadSeq && activeAiConversationId.value === conversationId) {
+      aiBlocked.value = error.message || t('errors.requestFailed');
+    }
     return null;
   } finally {
-    aiDecompressing.value = false;
+    if (loadSeq === aiConversationLoadSeq) {
+      aiDecompressing.value = false;
+    }
   }
 }
 
@@ -1119,7 +1160,7 @@ async function openAiForQuestion(questionId, surface = 'main') {
     const stillRelevant = surface === 'main'
       ? aiVisible.value && currentQuestionId.value === questionId
       : browseAiQuestionId.value === questionId;
-    if (stillRelevant && payload?.conversation?.id) {
+    if (surface === 'main' && stillRelevant && payload?.conversation?.id) {
       activeAiConversationId.value = payload.conversation.id;
     }
   } catch (error) {
@@ -1135,7 +1176,7 @@ async function openAiForQuestion(questionId, surface = 'main') {
   }
 }
 
-async function sendAiMessage(conversationId, content) {
+async function sendAiMessage(conversationId, content, { surface = 'main' } = {}) {
   if (!conversationId || !content?.trim()) return;
   if (!canUseAiNow()) {
     aiBlocked.value = aiDisabledReason();
@@ -1159,7 +1200,7 @@ async function sendAiMessage(conversationId, content) {
       }
     );
     applyAiPayload(payload);
-    if (payload?.conversation?.id) {
+    if (surface !== 'browse' && payload?.conversation?.id) {
       activeAiConversationId.value = payload.conversation.id;
     }
   } catch (error) {
@@ -1182,7 +1223,7 @@ async function askCurrentQuestionAi() {
   stopwatch.stop();
   // Mirror showAnswer: asking AI explanation counts as viewing the item.
   const attemptId = ensureCurrentAttemptId(questionId);
-  await recordViewedAttempt(questionId, attemptId, mode.value);
+  recordViewedAttempt(questionId, attemptId, mode.value).catch(() => {});
   await openAiForQuestion(questionId, 'main');
 }
 
@@ -1191,20 +1232,20 @@ async function askBrowseQuestionAi(id) {
   if (aiBusy.value) return;
   if (!effectiveGuest.value && questionsById.value.has(id)) {
     const attemptId = ensureBrowseAttemptId(id);
-    await recordViewedAttempt(id, attemptId, 'browse');
+    recordViewedAttempt(id, attemptId, 'browse').catch(() => {});
   }
   await openAiForQuestion(id, 'browse');
 }
 
 async function sendCurrentAiMessage(content) {
   if (!activeAiConversationId.value) return;
-  await sendAiMessage(activeAiConversationId.value, content);
+  await sendAiMessage(activeAiConversationId.value, content, { surface: 'main' });
 }
 
 async function sendBrowseAiMessage(content) {
-  const conversationId = browseAiConversation.value?.id ?? activeAiConversationId.value;
+  const conversationId = browseAiConversation.value?.id ?? '';
   if (!conversationId) return;
-  await sendAiMessage(conversationId, content);
+  await sendAiMessage(conversationId, content, { surface: 'browse' });
 }
 
 async function selectAiConversation(conversationId) {
@@ -1213,12 +1254,13 @@ async function selectAiConversation(conversationId) {
   await loadAiConversationById(conversationId);
 }
 
-async function saveAiSettings({ apiKey, model }) {
+async function saveAiSettings({ apiKey, model, customPrompt }) {
   if (effectiveGuest.value) return;
   try {
     const payload = await api.setConfig({
       aiApiKey: apiKey ?? '',
-      aiModel: model ?? config.value?.ai?.model ?? 'gpt-5.4-mini'
+      aiModel: model ?? config.value?.ai?.model ?? 'gpt-5.4-mini',
+      aiCustomPrompt: customPrompt ?? config.value?.ai?.customPrompt ?? ''
     });
     applyRemoteState(payload);
     if (payload?.aiMeta) aiMeta.value = payload.aiMeta;
@@ -1999,9 +2041,11 @@ function scoreToNote(score) {
       :ai-meta="aiMeta"
       :server-state="serverState"
       :current-library-id="libraryId"
+      :current-theme="theme"
       @close="settingsOpen = false"
       @switch-profile="handleSwitchProfile"
       @switch-library="handleSwitchLibrary"
+      @change-theme="handleThemeChange"
       @save-ai-settings="saveAiSettings"
     />
     <AppInfoModal

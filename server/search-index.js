@@ -1,17 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadPdfjs } from './pdfjs.js';
 
 const CACHE_VERSION = 1;
 const SNIPPET_RADIUS = 60;
 const MAX_SNIPPETS_PER_HIT = 2;
-
-let pdfjsPromise = null;
-async function loadPdfjs() {
-  if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
-  }
-  return pdfjsPromise;
-}
 
 export function createSearchIndex({ projectRoot, getCatalog, cacheKey = 'library' }) {
   const safeKey = String(cacheKey || 'library').replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'library';
