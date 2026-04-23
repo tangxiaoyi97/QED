@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 export const PROGRESS_STATUSES = ['mastered', 'meh', 'baffled', 'ignored'];
 export const ATTEMPT_STATUSES = [...PROGRESS_STATUSES, 'skipped'];
@@ -572,9 +573,18 @@ function normalizeNote(value) {
   return numeric;
 }
 
-function mergeDeep(base, override) {
+const FORBIDDEN_MERGE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function mergeDeep(base, override, depth = 0) {
+  // Depth guard: a malicious profile config with runaway nesting would
+  // otherwise blow the stack before validation runs.
+  if (depth > 32) return structuredClone(base);
   const output = structuredClone(base);
   for (const [key, value] of Object.entries(override)) {
+    // Prototype-pollution guard. Even though the /api/config route accepts
+    // only scalar fields today, profile JSON is read raw from disk; a
+    // tampered file must not be able to mutate Object.prototype.
+    if (FORBIDDEN_MERGE_KEYS.has(key)) continue;
     if (
       value &&
       typeof value === 'object' &&
@@ -583,7 +593,7 @@ function mergeDeep(base, override) {
       typeof output[key] === 'object' &&
       !Array.isArray(output[key])
     ) {
-      output[key] = mergeDeep(output[key], value);
+      output[key] = mergeDeep(output[key], value, depth + 1);
     } else if (value !== undefined) {
       output[key] = value;
     }
@@ -638,7 +648,15 @@ function withProfileLock(lockKey, operation) {
 async function doWriteJson(filePath, value) {
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
-  const tempPath = `${filePath}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  await fs.rename(tempPath, filePath);
+  // Unique tmp name per write. The writeLocks serialize same-file writes, but
+  // a unique name defends against any external process or crash artifact that
+  // might leave a stale .tmp around, and removes any cross-process race.
+  const tempPath = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    await fs.unlink(tempPath).catch(() => {});
+    throw error;
+  }
 }

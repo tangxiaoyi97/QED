@@ -61,6 +61,16 @@ ensureServerConfig();
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+// Baseline security headers. Kept minimal to avoid breaking PDF.js, Vite HMR,
+// or KaTeX fonts — no CSP here because the app's inline styles and blob: PDFs
+// make a strict policy brittle. These three are safe and universally useful.
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
+
 const BOOTSTRAP_RANDOM_FILTERS = {
   statuses: ['unseen', 'meh', 'baffled'],
   topics: [],
@@ -634,7 +644,7 @@ app.post('/api/ai/open', async (req, response, next) => {
       conversation.messages.push({
         id: makeMessageId(),
         role: 'assistant',
-        content: `AI 请求失败：${error.message || '未知错误'}`,
+        content: `AI 请求失败：${sanitizeAiErrorMessage(error)}`,
         createdAt: new Date().toISOString(),
         error: true
       });
@@ -747,7 +757,7 @@ app.post('/api/ai/message', async (req, response, next) => {
       assistantMessage = {
         id: makeMessageId(),
         role: 'assistant',
-        content: `AI 请求失败：${error.message || '未知错误'}`,
+        content: `AI 请求失败：${sanitizeAiErrorMessage(error)}`,
         createdAt: new Date().toISOString(),
         error: true
       };
@@ -979,15 +989,53 @@ app.use((error, _request, response, _next) => {
   });
 });
 
+// Prevent silent crashes: log top-level async errors instead of letting Node
+// tear the process down without a trace. We intentionally keep the process
+// alive — this is a single-user local app and killing it would drop the
+// user's session mid-action.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (error) => {
+  console.error('[uncaughtException]', error);
+});
+
+// In production default to localhost. This is an offline study app; binding
+// 0.0.0.0 would expose the user's library and AI key to anyone on the LAN.
+// Operators who need LAN access must opt in explicitly via HOST.
+const bindHost = process.env.HOST || (isProduction ? '127.0.0.1' : 'localhost');
+
+let runningServer = null;
 try {
-  await startServer(app, requestedPort, {
-    host: process.env.HOST,
+  runningServer = await startServer(app, requestedPort, {
+    host: bindHost,
     retryLimit: portRetryLimit
   });
   await warmupCatalog();
 } catch (error) {
   console.error(formatStartupError(error));
   process.exit(1);
+}
+
+// Graceful shutdown: stop accepting new connections, let in-flight requests
+// finish, then exit. Force-exit after 10s if something hangs.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    console.log(`[server] ${signal} received, shutting down...`);
+    if (!runningServer) return process.exit(0);
+    const forceExit = setTimeout(() => {
+      console.warn('[server] forced exit after graceful shutdown timeout.');
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+    runningServer.close((err) => {
+      if (err) {
+        console.error('[server] close error:', err);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
+  });
 }
 
 async function startServer(expressApp, initialPort, { host, retryLimit }) {
@@ -1441,20 +1489,51 @@ function buildContentDisposition(filename) {
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(safeName)}`;
 }
 
+// Bounds on merged PDFs. A single past paper is always well under these, so
+// these limits exist purely to cap memory/CPU if the catalog ever picks up a
+// malformed or adversarially-large PDF.
+const PDF_MAX_INPUT_BYTES = 100 * 1024 * 1024; // 100MB per source file
+const PDF_MAX_TOTAL_PAGES = 500;
+
 async function mergePdfFiles(filePaths) {
   const output = await PDFDocument.create();
+  let totalPages = 0;
   for (const filePath of filePaths) {
+    const stat = await fsp.stat(filePath);
+    if (stat.size > PDF_MAX_INPUT_BYTES) {
+      throw new Error(`PDF 文件过大：${path.basename(filePath)}`);
+    }
     const bytes = await fsp.readFile(filePath);
     const source = await PDFDocument.load(bytes, { ignoreEncryption: true });
     const pageIndices = source.getPageIndices();
     if (pageIndices.length === 0) continue;
-    const pages = await output.copyPages(source, pageIndices);
+    const remaining = PDF_MAX_TOTAL_PAGES - totalPages;
+    if (remaining <= 0) break;
+    const take = pageIndices.slice(0, remaining);
+    const pages = await output.copyPages(source, take);
     for (const page of pages) {
       output.addPage(page);
     }
+    totalPages += take.length;
   }
   const merged = await output.save();
   return Buffer.from(merged);
+}
+
+// Scrub upstream AI error messages before they land in chat history (which
+// the client renders verbatim). Upstream errors sometimes contain URLs,
+// request IDs, or organization names that shouldn't be exposed to whoever
+// opens the conversation later.
+function sanitizeAiErrorMessage(error) {
+  const raw = typeof error?.message === 'string' ? error.message : '';
+  if (!raw) return '未知错误';
+  const stripped = raw
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, '[redacted-key]')
+    .replace(/\bBearer\s+[A-Za-z0-9_.-]+/gi, 'Bearer [redacted]')
+    .replace(/https?:\/\/\S+/g, '[url]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped.length > 240 ? `${stripped.slice(0, 240)}…` : stripped;
 }
 
 function sanitizeModelName(value, fallback = DEFAULT_AI_MODEL) {
