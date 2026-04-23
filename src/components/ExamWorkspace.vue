@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import PdfCanvas from './PdfCanvas.vue';
 import { formatExamTime, formatQuestionTitle } from '../utils/format.js';
 import { useI18n } from '../composables/useI18n.js';
+import { api } from '../services/api.js';
 
 const props = defineProps({
   question: { type: Object, default: null },
@@ -48,8 +49,7 @@ watch(
     tiersLoading.value = true;
     scoreTiers.value = null;
     try {
-      const res = await fetch(`/api/score-tiers/${encodeURIComponent(id)}`, { signal: controller.signal });
-      const data = await res.json();
+      const data = await api.scoreTiers(id, { signal: controller.signal });
       if (controller.signal.aborted) return;
       scoreTiers.value = Array.isArray(data.scores) ? data.scores : [];
     } catch (error) {

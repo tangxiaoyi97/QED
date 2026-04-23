@@ -80,7 +80,7 @@ function submit() {
 
 function roleLabel(role) {
   if (role === 'assistant') return 'AI';
-  if (role === 'system') return 'System';
+  if (role === 'system') return t('ai.system');
   return t('ai.you');
 }
 

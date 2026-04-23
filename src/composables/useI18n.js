@@ -3,10 +3,28 @@ import { DEFAULT_LOCALE, LOCALE_LABELS, SUPPORTED_LOCALES, messages } from '../i
 
 const STORAGE_KEY = 'qed.locale';
 
+function readStoredLocale() {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredLocale(nextLocale) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, nextLocale);
+  } catch {
+    // Ignore write failures in restricted environments.
+  }
+}
+
 function resolveInitialLocale() {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
 
-  const persisted = window.localStorage.getItem(STORAGE_KEY);
+  const persisted = readStoredLocale();
   if (persisted && SUPPORTED_LOCALES.includes(persisted)) {
     return persisted;
   }
@@ -36,6 +54,21 @@ function readPath(obj, path) {
   }, obj);
 }
 
+function applyDocumentMetadata(nextLocale) {
+  if (typeof document === 'undefined') return;
+  const localized = messages[nextLocale] ?? messages[DEFAULT_LOCALE];
+  const fallback = messages[DEFAULT_LOCALE];
+  const title = readPath(localized, 'appMeta.title') ?? readPath(fallback, 'appMeta.title') ?? 'QED';
+  const description = readPath(localized, 'appMeta.description') ?? readPath(fallback, 'appMeta.description') ?? '';
+
+  document.documentElement.lang = nextLocale;
+  document.title = String(title);
+  const meta = document.querySelector('meta[name="description"]');
+  if (meta) {
+    meta.setAttribute('content', String(description));
+  }
+}
+
 function applyParams(template, params) {
   if (typeof template !== 'string') return template;
   return template.replace(/\{(\w+)\}/g, (_, key) => {
@@ -54,10 +87,11 @@ function t(key, params = {}) {
 function setLocale(nextLocale) {
   if (!SUPPORTED_LOCALES.includes(nextLocale)) return;
   locale.value = nextLocale;
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(STORAGE_KEY, nextLocale);
-  }
+  applyDocumentMetadata(nextLocale);
+  writeStoredLocale(nextLocale);
 }
+
+applyDocumentMetadata(locale.value);
 
 export function useI18n() {
   return {

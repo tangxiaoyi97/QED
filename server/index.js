@@ -43,7 +43,9 @@ if (!fs.existsSync(userRoot)) {
   fs.mkdirSync(userRoot, { recursive: true });
 }
 const isProduction = process.env.NODE_ENV === 'production';
-const port = Number(process.env.PORT || 3000);
+const DEFAULT_PORT = 3000;
+const requestedPort = parsePort(process.env.PORT, DEFAULT_PORT);
+const portRetryLimit = parsePositiveInteger(process.env.PORT_RETRY_LIMIT, process.env.PORT ? 1 : 10);
 const CATALOG_REFRESH_INTERVAL_MS = Number(process.env.CATALOG_REFRESH_MS || 5 * 60 * 1000);
 const DEFAULT_AI_MODEL = 'gpt-5.4-mini';
 const ACTIVE_AI_CONVERSATIONS_LIMIT = 7;
@@ -95,7 +97,7 @@ const EMPTY_EXAM_DRAFTS = Object.freeze({ version: 1, drafts: [] });
 const EMPTY_AI_HISTORY = Object.freeze({ version: 1, conversations: [] });
 const guestStorage = {
   async ensure() {},
-  async readConfig()       { return { historyLimit: 500, examMinutes: 270, ai: { apiKey: '', model: DEFAULT_AI_MODEL } }; },
+  async readConfig()       { return { historyLimit: 500, examMinutes: 270, locale: 'en-US', ai: { apiKey: '', model: DEFAULT_AI_MODEL } }; },
   async readProgress()     { return { ...EMPTY_PROGRESS }; },
   async readHistory()      { return []; },
   async readProbeHistory() { return []; },
@@ -103,12 +105,19 @@ const guestStorage = {
   async writeExamDrafts()  {},
   async readAiHistory()    { return { ...EMPTY_AI_HISTORY, conversations: [] }; },
   async writeAiHistory()   {},
+  async updateAiHistory(operation) {
+    const aiHistory = { ...EMPTY_AI_HISTORY, conversations: [] };
+    return {
+      aiHistory,
+      result: typeof operation === 'function' ? await operation(aiHistory) : null
+    };
+  },
   async writeProgress()    {},
   async recordAttempt()    {
     return {
       progress: { ...EMPTY_PROGRESS },
       history: [],
-      config: { historyLimit: 500, examMinutes: 270, ai: { apiKey: '', model: DEFAULT_AI_MODEL } },
+      config: { historyLimit: 500, examMinutes: 270, locale: 'en-US', ai: { apiKey: '', model: DEFAULT_AI_MODEL } },
       examDrafts: { ...EMPTY_EXAM_DRAFTS, drafts: [] },
       aiHistory: { ...EMPTY_AI_HISTORY, conversations: [] }
     };
@@ -117,7 +126,7 @@ const guestStorage = {
     return {
       progress: { ...EMPTY_PROGRESS },
       history: [],
-      config: { historyLimit: 500, examMinutes: 270, ai: { apiKey: '', model: DEFAULT_AI_MODEL } },
+      config: { historyLimit: 500, examMinutes: 270, locale: 'en-US', ai: { apiKey: '', model: DEFAULT_AI_MODEL } },
       examDrafts: { ...EMPTY_EXAM_DRAFTS, drafts: [] },
       aiHistory: { ...EMPTY_AI_HISTORY, conversations: [] }
     };
@@ -556,6 +565,8 @@ app.post('/api/ai/open', async (req, response, next) => {
     }
 
     const config = await req.storage.readConfig();
+    const requestedLocale = typeof req.body?.locale === 'string' ? req.body.locale : '';
+    const promptLocale = resolveAiPromptLocale(requestedLocale, config.locale);
     const aiMeta = buildAiMeta(config, req);
     const aiApiKey = resolveAiApiKey(config, req);
     if (!aiApiKey) {
@@ -584,6 +595,7 @@ app.post('/api/ai/open', async (req, response, next) => {
       id: makeConversationId(questionId),
       questionId,
       model,
+      locale: normalizeLocale(promptLocale),
       createdAt: now,
       updatedAt: now,
       compressed: false,
@@ -598,14 +610,14 @@ app.post('/api/ai/open', async (req, response, next) => {
       catalog: activeCatalog,
       question,
       followup: null,
-      locale: config.locale
+      locale: promptLocale
     });
 
     try {
       const assistantContent = await requestAiCompletion({
         apiKey: aiApiKey,
         model,
-        systemPrompt: await readDefaultPrompt(config.locale),
+        systemPrompt: await readDefaultPrompt(promptLocale),
         userPrompt: initialPrompt
       });
       conversation.messages.push({
@@ -631,15 +643,24 @@ app.post('/api/ai/open', async (req, response, next) => {
       conversation.updatedAt = new Date().toISOString();
     }
 
-    upsertConversation(aiHistory, conversation);
-    enforceAiCompression(aiHistory);
-    await req.storage.writeAiHistory(aiHistory);
+    const { aiHistory: persistedAiHistory, result } = await req.storage.updateAiHistory((currentAiHistory) => {
+      const currentExisting = findConversationByQuestion(currentAiHistory, questionId);
+      if (currentExisting) {
+        return { existing: true, conversationId: currentExisting.id };
+      }
+      upsertConversation(currentAiHistory, conversation);
+      enforceAiCompression(currentAiHistory);
+      return { existing: false, conversationId: conversation.id };
+    });
+    const persistedConversation = result?.conversationId
+      ? hydrateConversation(getConversationById(persistedAiHistory, result.conversationId))
+      : null;
 
     response.json({
-      existing: false,
-      conversation: hydrateConversation(conversation),
+      existing: Boolean(result?.existing),
+      conversation: persistedConversation ?? hydrateConversation(conversation),
       aiMeta,
-      conversations: summarizeAiConversations(aiHistory, activeCatalog.questionsById)
+      conversations: summarizeAiConversations(persistedAiHistory, activeCatalog.questionsById)
     });
   } catch (error) {
     next(error);
@@ -654,9 +675,10 @@ app.post('/api/ai/message', async (req, response, next) => {
     }
 
     const activeCatalog = await refreshCatalogForRequest(req);
-    const { conversationId, content, model: requestedModel } = req.body ?? {};
+    const { conversationId, content, model: requestedModel, locale: requestedLocaleRaw } = req.body ?? {};
     const safeConversationId = typeof conversationId === 'string' ? conversationId : '';
     const trimmedContent = typeof content === 'string' ? content.trim() : '';
+    const requestedLocale = typeof requestedLocaleRaw === 'string' ? requestedLocaleRaw : '';
     if (!safeConversationId || !trimmedContent) {
       response.status(400).json({ error: 'INVALID_REQUEST', message: '会话 ID 与消息内容不能为空。' });
       return;
@@ -674,26 +696,25 @@ app.post('/api/ai/message', async (req, response, next) => {
       return;
     }
 
-    const aiHistory = await req.storage.readAiHistory();
-    const conversation = getConversationById(aiHistory, safeConversationId);
-    if (!conversation) {
+    const aiHistorySnapshot = await req.storage.readAiHistory();
+    const conversationSnapshot = getConversationById(aiHistorySnapshot, safeConversationId);
+    if (!conversationSnapshot) {
       response.status(404).json({ error: 'CONVERSATION_NOT_FOUND', message: '会话不存在。' });
       return;
     }
 
-    const hydrated = hydrateConversation(conversation);
+    const hydrated = hydrateConversation(conversationSnapshot);
+    const promptLocale = resolveAiPromptLocale(requestedLocale, conversationSnapshot.locale || config.locale);
     const effectiveModel = aiMeta.canUseCustomModel
       ? sanitizeModelName(requestedModel || config.ai?.model || hydrated.model || aiMeta.defaultModel, aiMeta.defaultModel)
       : aiMeta.defaultModel;
-    hydrated.model = effectiveModel;
-    hydrated.messages.push({
+    const userMessage = {
       id: makeMessageId(),
       role: 'user',
       content: trimmedContent.slice(0, MAX_FOLLOWUP_PROMPT_CHARS),
       createdAt: new Date().toISOString(),
       error: false
-    });
-    hydrated.updatedAt = new Date().toISOString();
+    };
 
     const question = activeCatalog.questionsById.get(hydrated.questionId);
     if (!question) {
@@ -701,47 +722,62 @@ app.post('/api/ai/message', async (req, response, next) => {
       return;
     }
 
+    let assistantMessage;
     try {
       const userPrompt = await buildQuestionPrompt({
         catalog: activeCatalog,
         question,
         followup: trimmedContent.slice(0, MAX_FOLLOWUP_PROMPT_CHARS),
-        locale: config.locale
+        locale: promptLocale
       });
       const assistantContent = await requestAiCompletion({
         apiKey: aiApiKey,
         model: effectiveModel,
-        systemPrompt: await readDefaultPrompt(config.locale),
+        systemPrompt: await readDefaultPrompt(promptLocale),
         userPrompt
       });
-      hydrated.messages.push({
+      assistantMessage = {
         id: makeMessageId(),
         role: 'assistant',
         content: assistantContent,
         createdAt: new Date().toISOString(),
         error: false
-      });
+      };
     } catch (error) {
-      hydrated.messages.push({
+      assistantMessage = {
         id: makeMessageId(),
         role: 'assistant',
         content: `AI 请求失败：${error.message || '未知错误'}`,
         createdAt: new Date().toISOString(),
         error: true
-      });
+      };
     }
 
-    hydrated.updatedAt = new Date().toISOString();
-    hydrated.messageCount = hydrated.messages.length;
-    hydrated.preview = createConversationPreview(hydrated.messages);
-    upsertConversation(aiHistory, hydrated);
-    enforceAiCompression(aiHistory);
-    await req.storage.writeAiHistory(aiHistory);
+    const { aiHistory: persistedAiHistory, result } = await req.storage.updateAiHistory((currentAiHistory) => {
+      const currentConversation = getConversationById(currentAiHistory, safeConversationId);
+      if (!currentConversation) {
+        return { missing: true };
+      }
+      const nextConversation = hydrateConversation(currentConversation);
+      nextConversation.model = effectiveModel;
+      nextConversation.locale = normalizeLocale(promptLocale);
+      nextConversation.messages.push(userMessage, assistantMessage);
+      nextConversation.updatedAt = new Date().toISOString();
+      nextConversation.messageCount = nextConversation.messages.length;
+      nextConversation.preview = createConversationPreview(nextConversation.messages);
+      upsertConversation(currentAiHistory, nextConversation);
+      enforceAiCompression(currentAiHistory);
+      return { missing: false, conversationId: nextConversation.id };
+    });
+    if (result?.missing) {
+      response.status(404).json({ error: 'CONVERSATION_NOT_FOUND', message: '会话不存在。' });
+      return;
+    }
 
     response.json({
-      conversation: hydrateConversation(getConversationById(aiHistory, hydrated.id)),
+      conversation: hydrateConversation(getConversationById(persistedAiHistory, result?.conversationId || safeConversationId)),
       aiMeta,
-      conversations: summarizeAiConversations(aiHistory, activeCatalog.questionsById)
+      conversations: summarizeAiConversations(persistedAiHistory, activeCatalog.questionsById)
     });
   } catch (error) {
     next(error);
@@ -943,11 +979,77 @@ app.use((error, _request, response, _next) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`QED v${APP_VERSION} running at http://localhost:${port}`);
-});
+try {
+  await startServer(app, requestedPort, {
+    host: process.env.HOST,
+    retryLimit: portRetryLimit
+  });
+  await warmupCatalog();
+} catch (error) {
+  console.error(formatStartupError(error));
+  process.exit(1);
+}
 
-await warmupCatalog();
+async function startServer(expressApp, initialPort, { host, retryLimit }) {
+  for (let attempt = 0; attempt < retryLimit; attempt += 1) {
+    const candidatePort = initialPort + attempt;
+    try {
+      const server = await listen(expressApp, candidatePort, host);
+      const address = server.address();
+      const activePort = typeof address === 'object' && address ? address.port : candidatePort;
+      const activeHost = host || 'localhost';
+      console.log(`QED v${APP_VERSION} running at http://${activeHost}:${activePort}`);
+      return server;
+    } catch (error) {
+      if (error.code === 'EADDRINUSE' && attempt < retryLimit - 1) {
+        console.warn(`[server] Port ${candidatePort} is already in use; trying ${candidatePort + 1}...`);
+        continue;
+      }
+      error.requestedPort = candidatePort;
+      throw error;
+    }
+  }
+
+  throw new Error(`Unable to start server after ${retryLimit} attempts.`);
+}
+
+function listen(expressApp, candidatePort, host) {
+  return new Promise((resolve, reject) => {
+    const server = host
+      ? expressApp.listen(candidatePort, host)
+      : expressApp.listen(candidatePort);
+
+    server.once('listening', () => resolve(server));
+    server.once('error', reject);
+  });
+}
+
+function parsePort(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) return parsed;
+  console.warn(`[server] Invalid PORT "${value}", using ${fallback}.`);
+  return fallback;
+}
+
+function parsePositiveInteger(value, fallback) {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function formatStartupError(error) {
+  if (error?.code === 'EADDRINUSE') {
+    const busyPort = error.requestedPort || requestedPort;
+    const nextPort = busyPort + 1;
+    return [
+      `[server] Port ${busyPort} is already in use.`,
+      `Stop the process using it, or start QED on another port: PORT=${nextPort} npm run start`
+    ].join('\n');
+  }
+
+  return error?.stack || error?.message || String(error);
+}
 
 async function warmupCatalog() {
   try {
@@ -1584,7 +1686,7 @@ const PROMPT_STRINGS = {
     noQuestion: '(未能提取原题文本，请基于题号与通用知识作答并指出该局限。)',
     noAnswer: '(未能提取答案文本，请仅用原题推理，并提醒用户核对官方 Lösung。)',
     followupLead: '用户追加提问：',
-    initial: '请按系统提示的固定结构给出高质量讲解，并结合评分规则总结得分点与常见失分点。'
+    initial: '请按系统提示结构输出精炼讲解，优先覆盖解题步骤、评分点与易错点；篇幅控制在必要范围内。'
   },
   'en': {
     id: 'Question ID',
@@ -1594,7 +1696,7 @@ const PROMPT_STRINGS = {
     noQuestion: '(Could not extract the question text. Answer using the ID and general knowledge, and state this limitation.)',
     noAnswer: '(Could not extract the answer text. Reason only from the question and remind the user to check the official Lösung.)',
     followupLead: 'Follow-up from the user:',
-    initial: 'Produce a high-quality explanation in the fixed structure defined in the system prompt, and summarise scoring points and common pitfalls from the rubric.'
+    initial: 'Follow the fixed structure and keep the explanation concise; prioritise solution steps, scoring points, and common pitfalls.'
   },
   'de': {
     id: 'Aufgaben-ID',
@@ -1604,7 +1706,7 @@ const PROMPT_STRINGS = {
     noQuestion: '(Der Aufgabentext konnte nicht extrahiert werden. Antworte mit Hilfe der ID und Allgemeinwissen und weise auf diese Einschränkung hin.)',
     noAnswer: '(Der Lösungstext konnte nicht extrahiert werden. Argumentiere nur aus der Aufgabe und bitte den Nutzer, die offizielle Lösung zu prüfen.)',
     followupLead: 'Rückfrage der Nutzerin / des Nutzers:',
-    initial: 'Liefere eine hochwertige Erklärung in der im System-Prompt festgelegten Struktur und fasse Punkteregel und häufige Fehler aus der Bewertung zusammen.'
+    initial: 'Nutze die feste Struktur und antworte prägnant; fokussiere auf Lösungsschritte, Punktevergabe und typische Fehler.'
   }
 };
 
@@ -1691,18 +1793,21 @@ const AI_PROMPTS = {
     '硬性规则：',
     '1. 严格基于提供的「题目文本」和「答案/评分文本」作答，不得编造题目中未出现的条件或数值。',
     '2. 若题目或答案缺失关键信息，先明确指出缺失项，再给出最合理的假设后的解法。',
-    '3. 默认使用简体中文回答；保留德语专有名词原文（Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG 等），不翻译。',
-    '4. 所有公式使用 LaTeX：行内用 $...$，独立公式用 $$...$$，不要写 \\\\[ \\\\] 或 ``` 代码块包公式。',
+    '3. 默认使用简体中文回答；德语考试术语（Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG）保留原文。',
+    '4. 所有公式使用 LaTeX：行内 $...$，独立 $$...$$；不要用 \\\\[ \\\\] 或代码块包数学。',
     '5. 单位、变量名与德语原卷一致（如 x, k, n, s, p），不要改名。',
+    '6. 首次回答要精炼，不重复整段题干。默认控制在 220–420 中文字（用户要求详细时可扩展）。',
+    '7. 若是多小题（如 Teil 2），按 a)、b)、c) 分小节回答。',
+    '8. 输出结束前检查 Markdown 与 LaTeX 是否闭合，避免半截的 **、$、$$、列表项。',
     '',
     '首次回答的固定结构：',
-    '- **题目理解**：1–3 行概括条件与要求。',
-    '- **解题步骤**：按序编号；每一步给出动作与对应公式。',
-    '- **评分点**：按 Punkt 可能拆分的得分点分条（1 Punkt / 2 Punkte 等）。',
-    '- **易错点**：最多 5 条，写具体情形。',
+    '- **题目理解**：1–3 行概括条件与求解目标。',
+    '- **解题步骤**：按序编号；每一步写动作与公式。',
+    '- **评分点**：按可得 Punkt 分条（1 Punkt / 2 Punkte ...）。',
+    '- **易错点**：最多 5 条，必须具体。',
     '- **一句话总结**：便于记忆。',
     '',
-    '追问规则：用户继续提问时，只回答追问本身，不要重复整题长解；若追问与本题无关，礼貌说明并引导回题目。'
+    '追问规则：用户继续提问时，仅回答追问本身（3–6 条要点或短段落），不要重复整题长解。'
   ].join('\n'),
   'en': [
     'You are a tutor for the Austrian AHS SRDP mathematics exam, helping a student practice.',
@@ -1710,18 +1815,21 @@ const AI_PROMPTS = {
     'Hard rules:',
     '1. Ground every claim in the provided question text and answer/rubric text. Do not invent conditions or numbers.',
     '2. If key information is missing, state what is missing first, then proceed with the most reasonable assumption.',
-    '3. Reply in English. Keep German exam terminology verbatim (Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG, etc.); do not translate these.',
-    '4. Use LaTeX for every formula: $...$ inline, $$...$$ for display. Do not use \\\\[ \\\\] or ``` code fences around math.',
-    '5. Preserve the original variable names and units from the German source (x, k, n, s, p, …).',
+    '3. Reply in English. Keep German exam terms verbatim (Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG).',
+    '4. Use LaTeX for all formulas: $...$ inline and $$...$$ display. Do not use \\\\[ \\\\] or fenced code for math.',
+    '5. Preserve original variable names and units from the source (x, k, n, s, p, ...).',
+    '6. Initial answer should be concise and non-redundant (about 180–320 words by default).',
+    '7. For multi-part tasks (especially Teil 2), organise by subparts such as a), b), c).',
+    '8. Before finishing, ensure Markdown and LaTeX delimiters are balanced (no dangling **, $, $$, or broken list items).',
     '',
     'Fixed structure for the initial answer:',
     '- **Understanding**: 1–3 lines summarising the givens and the ask.',
     '- **Solution steps**: numbered; each step states the action and the formula.',
-    '- **Scoring points**: one bullet per Punkt that can be earned (1 Punkt / 2 Punkte …).',
+    '- **Scoring points**: one bullet per Punkt that can be earned (1 Punkt / 2 Punkte ...).',
     '- **Common mistakes**: at most 5 items, each concrete.',
     '- **One-line takeaway**: short and memorable.',
     '',
-    'Follow-ups: answer only what the user asks, do not repeat the full solution. If the follow-up is off-topic, politely redirect to the question.'
+    'Follow-ups: answer only the asked follow-up in a compact form (3–6 bullets or short paragraphs), without repeating the full solution.'
   ].join('\n'),
   'de': [
     'Du bist Tutor für die österreichische AHS-SRDP-Mathematikmatura und unterstützt eine Schülerin oder einen Schüler beim Üben.',
@@ -1729,18 +1837,21 @@ const AI_PROMPTS = {
     'Harte Regeln:',
     '1. Jede Aussage muss durch den gegebenen „Aufgabentext“ und die „Lösung/Bewertung“ belegt sein. Keine Bedingungen oder Zahlen erfinden.',
     '2. Fehlen wichtige Informationen, benenne die Lücke zuerst und rechne dann mit der plausibelsten Annahme weiter.',
-    '3. Antworte auf Deutsch. Fachbegriffe der Matura (Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG …) wörtlich übernehmen.',
-    '4. Formeln immer in LaTeX setzen: $...$ inline, $$...$$ für abgesetzte Formeln. Keine \\\\[ \\\\]-Klammern und keine ```-Codeblöcke um Mathematik.',
-    '5. Variablen- und Einheitennamen (x, k, n, s, p, …) aus der Originalaufgabe unverändert beibehalten.',
+    '3. Antworte auf Deutsch. Matura-Fachbegriffe (Teil, Aufgabe, Punkte, Note, Lösung, WS, AN, AG) wörtlich übernehmen.',
+    '4. Formeln in LaTeX: $...$ inline, $$...$$ abgesetzt. Keine \\\\[ \\\\]-Klammern und keine Codeblöcke für Mathematik.',
+    '5. Variablen- und Einheitennamen (x, k, n, s, p, ...) aus der Originalaufgabe unverändert beibehalten.',
+    '6. Die Erstantwort soll prägnant sein (standardmäßig etwa 180–320 Wörter).',
+    '7. Bei mehrteiligen Aufgaben (besonders Teil 2) nach Teilaufgaben gliedern, z. B. a), b), c).',
+    '8. Vor dem Abschluss prüfen, dass Markdown und LaTeX vollständig sind (keine offenen **, $, $$ oder abgebrochenen Listen).',
     '',
     'Feste Struktur der Erstantwort:',
     '- **Aufgabenverständnis**: 1–3 Zeilen mit Gegebenem und Gesuchtem.',
     '- **Lösungsschritte**: durchnummeriert; pro Schritt Aktion und Formel.',
-    '- **Punkte**: je vergebbarem Punkt einen Spiegelstrich (1 Punkt / 2 Punkte …).',
+    '- **Punkte**: je vergebbarem Punkt einen Spiegelstrich (1 Punkt / 2 Punkte ...).',
     '- **Häufige Fehler**: maximal 5, konkret formuliert.',
     '- **Merksatz**: eine Zeile zum Einprägen.',
     '',
-    'Rückfragen: beantworte nur die Rückfrage, wiederhole nicht die gesamte Lösung. Ist die Frage themenfremd, höflich zur Aufgabe zurückführen.'
+    'Rückfragen: nur die konkrete Rückfrage kompakt beantworten (3–6 Stichpunkte oder kurze Absätze), ohne die ganze Lösung zu wiederholen.'
   ].join('\n')
 };
 
@@ -1752,6 +1863,13 @@ function normalizeLocale(value) {
   if (/^de/i.test(trimmed)) return 'de';
   if (/^en/i.test(trimmed)) return 'en';
   return 'zh-CN';
+}
+
+function resolveAiPromptLocale(requestedLocale, fallbackLocale = 'en-US') {
+  const requested = typeof requestedLocale === 'string' ? requestedLocale.trim() : '';
+  if (requested) return requested;
+  const fallback = typeof fallbackLocale === 'string' ? fallbackLocale.trim() : '';
+  return fallback || 'en-US';
 }
 
 async function readDefaultPrompt(locale = 'zh-CN') {
@@ -1775,7 +1893,7 @@ const AI_MAX_OUTPUT_TOKENS = 1200;
 const AI_CONTINUATION_MAX_OUTPUT_TOKENS = 900;
 const AI_MAX_SEGMENTS = 3;
 const AI_CONTINUATION_PROMPT =
-  '请从你上一条回复的末尾继续，直接续写未完成内容，不要重复已写过的段落。';
+  'Continue exactly where your previous reply stopped. Do not repeat. Finish any unfinished sentence, list, Markdown marker, or LaTeX delimiter.';
 
 async function requestAiCompletion({ apiKey, model, systemPrompt, userPrompt }) {
   const safeModel = sanitizeModelName(model, DEFAULT_AI_MODEL);
@@ -1785,11 +1903,12 @@ async function requestAiCompletion({ apiKey, model, systemPrompt, userPrompt }) 
 
   for (let index = 0; index < AI_MAX_SEGMENTS; index += 1) {
     const continuation = index > 0;
+    const maxOutputTokens = continuation ? AI_CONTINUATION_MAX_OUTPUT_TOKENS : AI_MAX_OUTPUT_TOKENS;
     const body = continuation
       ? {
           model: safeModel,
           reasoning: { effort },
-          max_output_tokens: AI_CONTINUATION_MAX_OUTPUT_TOKENS,
+          max_output_tokens: maxOutputTokens,
           previous_response_id: previousResponseId,
           input: [
             {
@@ -1801,7 +1920,7 @@ async function requestAiCompletion({ apiKey, model, systemPrompt, userPrompt }) 
       : {
           model: safeModel,
           reasoning: { effort },
-          max_output_tokens: AI_MAX_OUTPUT_TOKENS,
+          max_output_tokens: maxOutputTokens,
           input: [
             {
               role: 'system',
@@ -1827,7 +1946,9 @@ async function requestAiCompletion({ apiKey, model, systemPrompt, userPrompt }) 
     const text = pickResponseText(payload);
     if (text) parts.push(text);
 
-    const incomplete = isResponseIncomplete(payload);
+    const incomplete = isResponseIncomplete(payload)
+      || isLikelyTokenCapped(payload, maxOutputTokens)
+      || isLikelyTruncatedText(text);
     previousResponseId = typeof payload?.id === 'string' ? payload.id : null;
     if (!incomplete || !previousResponseId) break;
   }
@@ -1878,6 +1999,26 @@ function isResponseIncomplete(payload) {
     const itemStatus = typeof item?.status === 'string' ? item.status.toLowerCase() : '';
     if (itemStatus === 'incomplete') return true;
   }
+  return false;
+}
+
+function isLikelyTokenCapped(payload, maxOutputTokens) {
+  const used = Number(payload?.usage?.output_tokens);
+  if (!Number.isFinite(used) || !Number.isFinite(maxOutputTokens) || maxOutputTokens <= 0) return false;
+  return used >= maxOutputTokens - 8;
+}
+
+function isLikelyTruncatedText(text) {
+  if (typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const codeFenceCount = (trimmed.match(/```/g) ?? []).length;
+  if (codeFenceCount % 2 === 1) return true;
+
+  const boldCount = (trimmed.match(/\*\*/g) ?? []).length;
+  if (boldCount % 2 === 1) return true;
+
+  if (/(\*\*|\*|`|\$|\$\$|\\|\(|\[|\{|:|：|、|-)$/.test(trimmed)) return true;
   return false;
 }
 

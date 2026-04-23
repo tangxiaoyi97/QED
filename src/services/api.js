@@ -77,18 +77,18 @@ export const api = {
   aiConversation(id) {
     return fetchJson(`/api/ai/history/${encodeURIComponent(id)}`);
   },
-  aiOpen(questionId, { signal } = {}) {
+  aiOpen(questionId, { signal, locale } = {}) {
     return fetchJson('/api/ai/open', {
       method: 'POST',
       signal,
-      body: JSON.stringify({ questionId })
+      body: JSON.stringify({ questionId, locale })
     });
   },
-  aiMessage(conversationId, content, model, { signal } = {}) {
+  aiMessage(conversationId, content, model, { signal, locale } = {}) {
     return fetchJson('/api/ai/message', {
       method: 'POST',
       signal,
-      body: JSON.stringify({ conversationId, content, model })
+      body: JSON.stringify({ conversationId, content, model, locale })
     });
   },
   createQuestionDownloadLink(id) {
@@ -135,6 +135,9 @@ export const api = {
   },
   searchStatus() {
     return fetchJson('/api/search/status');
+  },
+  scoreTiers(id, { signal } = {}) {
+    return fetchJson(`/api/score-tiers/${encodeURIComponent(id)}`, { signal });
   },
   checkProfile(id) {
     return fetchJson(`/api/profiles/check/${id}`);

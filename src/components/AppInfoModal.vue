@@ -1,4 +1,6 @@
 <script setup>
+import { useI18n } from '../composables/useI18n.js';
+
 const props = defineProps({
   open: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
@@ -22,9 +24,10 @@ const props = defineProps({
 });
 
 defineEmits(['close', 'refresh-catalog']);
+const { t } = useI18n();
 
 function displayValue(value) {
-  if (value === null || value === undefined || value === '') return '未知';
+  if (value === null || value === undefined || value === '') return t('common.unknown');
   return value;
 }
 </script>
@@ -32,52 +35,52 @@ function displayValue(value) {
 <template>
   <Teleport to="body">
     <div v-if="open" class="modal-backdrop" @click.self="$emit('close')">
-      <section class="modal-panel app-info-panel" role="dialog" aria-modal="true" aria-label="QED 信息">
+      <section class="modal-panel app-info-panel" role="dialog" aria-modal="true" :aria-label="t('appInfo.ariaLabel')">
         <header class="modal-header">
           <div>
             <span class="eyebrow">{{ info.appName || 'QED' }}</span>
-            <h2 class="modal-title">项目信息</h2>
+            <h2 class="modal-title">{{ t('appInfo.title') }}</h2>
           </div>
           <button class="icon-button" type="button" @click="$emit('close')">✕</button>
         </header>
 
         <div class="app-info-body">
-          <p v-if="loading" class="muted-copy">正在读取信息...</p>
+          <p v-if="loading" class="muted-copy">{{ t('appInfo.loading') }}</p>
           <p v-if="error" class="app-info-error">{{ error }}</p>
 
           <div class="app-info-list">
             <div class="app-info-row">
-              <span>当前版本</span>
+              <span>{{ t('appInfo.version') }}</span>
               <strong>v{{ displayValue(info.version) }}</strong>
             </div>
             <div class="app-info-row">
-              <span>当前 Git 提交</span>
+              <span>{{ t('appInfo.gitCommit') }}</span>
               <strong>{{ displayValue(info.gitCommit) }}</strong>
             </div>
             <div class="app-info-row">
-              <span>题库信息</span>
-              <strong>{{ displayValue(info.questionCount) }} 题 · {{ displayValue(info.suiteCount) }} 套卷</strong>
+              <span>{{ t('appInfo.catalogInfo') }}</span>
+              <strong>{{ t('appInfo.catalogStats', { questions: displayValue(info.questionCount), suites: displayValue(info.suiteCount) }) }}</strong>
             </div>
             <div class="app-info-row">
-              <span>Profile 数量</span>
+              <span>{{ t('appInfo.profileCount') }}</span>
               <strong>{{ displayValue(info.profileCount) }}</strong>
             </div>
             <div class="app-info-row">
-              <span>GitHub</span>
+              <span>{{ t('appInfo.github') }}</span>
               <a :href="info.githubUrl || 'https://github.com/tangxiaoyi97/QED'" target="_blank" rel="noreferrer">
                 {{ info.githubUrl || 'https://github.com/tangxiaoyi97/QED' }}
               </a>
             </div>
             <div class="app-info-row">
-              <span>作者</span>
+              <span>{{ t('appInfo.authors') }}</span>
               <strong>{{ displayValue(info.authors) }}</strong>
             </div>
             <div class="app-info-row">
-              <span>致谢</span>
+              <span>{{ t('appInfo.acknowledgements') }}</span>
               <strong>{{ Array.isArray(info.acknowledgements) ? info.acknowledgements.join(' / ') : 'Claude / Codex' }}</strong>
             </div>
             <div class="app-info-row">
-              <span>开源协议</span>
+              <span>{{ t('appInfo.license') }}</span>
               <strong>{{ displayValue(info.license) }}</strong>
             </div>
           </div>
@@ -89,7 +92,7 @@ function displayValue(value) {
               :disabled="refreshing"
               @click="$emit('refresh-catalog')"
             >
-              {{ refreshing ? '刷新中...' : '手动刷新题库' }}
+              {{ refreshing ? t('appInfo.refreshing') : t('appInfo.refreshCatalog') }}
             </button>
           </div>
         </div>

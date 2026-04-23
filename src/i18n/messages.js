@@ -1,4 +1,4 @@
-export const DEFAULT_LOCALE = 'zh-CN';
+export const DEFAULT_LOCALE = 'en-US';
 
 export const SUPPORTED_LOCALES = ['zh-CN', 'en-US', 'de-AT'];
 
@@ -10,6 +10,10 @@ export const LOCALE_LABELS = {
 
 export const messages = {
   'zh-CN': {
+    appMeta: {
+      title: 'QED',
+      description: 'QED 刷题面板，支持题库浏览、进度追踪与模拟考试。'
+    },
     common: {
       confirm: '确认',
       cancel: '取消',
@@ -17,6 +21,7 @@ export const messages = {
       apply: '应用',
       loading: '加载中',
       unknown: '未知',
+      copy: '复制',
       questions: '{count} 题',
       pointsUnit: '分',
       points: '{value} 分',
@@ -40,14 +45,23 @@ export const messages = {
     },
     settings: {
       title: '个人设置',
+      dialogAria: '个人设置',
       userProfiles: '用户账户',
       profileDesc: '切换用户以加载独立的学习进度、星标题目和统计数据。数据安全地存储在后端独立的文件夹中。',
       currentActive: '当前活跃账户',
       loginOrCreate: '登录 / 创建',
       switchUser: '切换用户账户',
       switchToLogin: '输入用户名以登录或创建新账户',
+      exampleProfile: '例如 jondoe',
       inputHint: '用户名仅允许字母、数字、连字符和下划线。',
+      profileMissingConfirm: '用户 "@{profile}" 不存在。是否创建新账户？',
+      profileInvitePrompt: '正在为 "@{profile}" 创建账户。\n请输入 11 位邀请码（以 % 开头）：',
+      profileInviteInvalid: '邀请码格式错误（需以 % 开头且共 11 位）。',
+      profileCreateSuccess: '创建成功，正在切换到账户 @{profile}。',
+      profileActionFailed: '操作失败：{message}',
       systemConfig: '系统配置',
+      catalogPath: '题库路径',
+      storagePath: '存储路径',
       showcaseTitle: '展示模式已开启',
       showcaseDesc: '展示模式下无法登录、无法使用 AI，也不会写入任何用户数据。',
       librarySwitch: '题库切换',
@@ -55,6 +69,7 @@ export const messages = {
       libraryHint: '可输入题库 ID 或配置中的路径名称（文件夹名）。',
       aiTitle: 'AI 设置',
       aiDesc: '在题目页中可点击「询问 AI」获取解析。默认模型为 gpt-5.4-mini。',
+      aiPromptLocaleHint: '默认提示词会跟随当前界面语言（{language}）。',
       aiApiKey: '个人 API Key',
       aiApiKeyPlaceholder: 'sk-...',
       aiServerFallback: '未填写个人 Key 时，将尝试使用服务器本地配置中的 Key。',
@@ -62,6 +77,36 @@ export const messages = {
       aiModel: '模型',
       aiModelHint: '填写个人 Key 后可手动修改模型；未填写时固定使用默认模型。',
       aiSave: '保存 AI 设置'
+    },
+    appInfo: {
+      ariaLabel: 'QED 项目信息',
+      title: '项目信息',
+      loading: '正在读取信息...',
+      version: '当前版本',
+      gitCommit: '当前 Git 提交',
+      catalogInfo: '题库信息',
+      catalogStats: '{questions} 题 · {suites} 套卷',
+      profileCount: 'Profile 数量',
+      github: 'GitHub',
+      authors: '作者',
+      acknowledgements: '致谢',
+      license: '开源协议',
+      refreshCatalog: '手动刷新题库',
+      refreshing: '刷新中...'
+    },
+    onboarding: {
+      title: '欢迎使用 QED',
+      intro: '检测到本地 library 文件夹为空。开始刷题前，请先导入历年考试 PDF 资料。',
+      structureTitle: '1. 题库目录结构',
+      structureDesc: '`library/` 位于项目根目录。服务启动或文件变化后，QED 会自动按层级索引该目录，所有子目录都会被视为独立套卷（Suite/Exam Set）。',
+      namingTitle: '2. PDF 命名格式',
+      namingDescPrimary: '当前解析器专为奥地利 Matura 数学题结构设计，文件名需符合既定格式才能正确识别。',
+      namingDescSecondary: '若要兼容其他来源或课程资料，可在 `server/catalog.js` 中扩展正则解析规则。',
+      expectedPattern: '期望格式：',
+      profilesTitle: '3. 用户与记录',
+      profilesDesc: '每次练习会将进度写入 `profile/` 下对应用户目录。你可以在右上角设置中切换用户，无需重启服务。',
+      footerLine1: '把整理好的 Matura PDF 文件夹拖入 `library/`。',
+      footerLine2: '检测到新文件后，QED 会自动热重载。'
     },
     guest: {
       statsTitle: '统计数据暂不可用',
@@ -259,8 +304,10 @@ export const messages = {
     },
     ai: {
       you: '你',
+      system: '系统',
       send: '发送',
       inputPlaceholder: '输入你的问题，回车发送（Shift+Enter 换行）',
+      copyFormulaHint: '点击复制公式',
       emptyTitle: '打开题目后即可使用 AI',
       emptyDesc: '在题目下方点击「询问 AI」开始对话。',
       disabledGuest: '访客模式不支持 AI。',
@@ -310,6 +357,10 @@ export const messages = {
     }
   },
   'en-US': {
+    appMeta: {
+      title: 'QED',
+      description: 'QED practice panel for browsing question banks, tracking mastery, and running mock exams.'
+    },
     common: {
       confirm: 'Confirm',
       cancel: 'Cancel',
@@ -317,6 +368,7 @@ export const messages = {
       apply: 'Apply',
       loading: 'Loading',
       unknown: 'Unknown',
+      copy: 'Copy',
       questions: '{count} questions',
       pointsUnit: 'pts',
       points: '{value} pts',
@@ -340,14 +392,23 @@ export const messages = {
     },
     settings: {
       title: 'Personal Settings',
+      dialogAria: 'Personal settings',
       userProfiles: 'User Profiles',
       profileDesc: 'Switch users to load isolated learning history, starred questions, and statistics. Data is stored safely by user folder on the backend.',
       currentActive: 'Current active profile',
       loginOrCreate: 'Login / Create',
       switchUser: 'Switch User',
       switchToLogin: 'Enter a username to log in or create a new account',
+      exampleProfile: 'e.g. jondoe',
       inputHint: 'Username allows letters, numbers, hyphens, and underscores only.',
+      profileMissingConfirm: 'User "@{profile}" does not exist. Create a new account?',
+      profileInvitePrompt: 'Creating account "@{profile}".\nPlease enter the 11-character invite token (starts with %):',
+      profileInviteInvalid: 'Invalid invite token format (must start with % and be exactly 11 characters).',
+      profileCreateSuccess: 'Profile created. Switching to @{profile}.',
+      profileActionFailed: 'Operation failed: {message}',
       systemConfig: 'System Configuration',
+      catalogPath: 'Catalog Path',
+      storagePath: 'Storage Path',
       showcaseTitle: 'Showcase Mode Enabled',
       showcaseDesc: 'In showcase mode, login is disabled, AI is unavailable, and no user data can be written.',
       librarySwitch: 'Library Switch',
@@ -355,6 +416,7 @@ export const messages = {
       libraryHint: 'You can enter either a library ID or the configured folder name.',
       aiTitle: 'AI Settings',
       aiDesc: 'Use "Ask AI" under each question for guided explanation. Default model: gpt-5.4-mini.',
+      aiPromptLocaleHint: 'Default AI prompt follows your UI language ({language}).',
       aiApiKey: 'Personal API Key',
       aiApiKeyPlaceholder: 'sk-...',
       aiServerFallback: 'When personal key is empty, server local key will be used if available.',
@@ -362,6 +424,36 @@ export const messages = {
       aiModel: 'Model',
       aiModelHint: 'Model switch is unlocked only when personal key is set.',
       aiSave: 'Save AI Settings'
+    },
+    appInfo: {
+      ariaLabel: 'QED project information',
+      title: 'Project Information',
+      loading: 'Loading project info...',
+      version: 'Current Version',
+      gitCommit: 'Current Git Commit',
+      catalogInfo: 'Question Bank',
+      catalogStats: '{questions} questions · {suites} suites',
+      profileCount: 'Profile Count',
+      github: 'GitHub',
+      authors: 'Authors',
+      acknowledgements: 'Acknowledgements',
+      license: 'License',
+      refreshCatalog: 'Refresh Question Bank',
+      refreshing: 'Refreshing...'
+    },
+    onboarding: {
+      title: 'Welcome to QED',
+      intro: 'Your local library folder looks empty. Before practicing, import past exam PDF materials.',
+      structureTitle: '1. Library Structure',
+      structureDesc: 'The `library/` folder is in the project root. On startup and file changes, QED auto-indexes it hierarchically; each subfolder is treated as a suite/exam set.',
+      namingTitle: '2. PDF Naming Format',
+      namingDescPrimary: 'The parser is designed for Austrian Matura math structure. Filenames must follow the expected signature to be recognized.',
+      namingDescSecondary: 'To support other sources or curricula, extend the regex parser in `server/catalog.js`.',
+      expectedPattern: 'Expected pattern:',
+      profilesTitle: '3. Profiles & Records',
+      profilesDesc: 'Each practice action stores progress under `profile/` for the active user. You can switch profiles in settings without rebooting.',
+      footerLine1: 'Drag extracted Matura PDF folders into `library/`.',
+      footerLine2: 'QED hot-reloads automatically when files are detected.'
     },
     guest: {
       statsTitle: 'Statistics not available',
@@ -559,8 +651,10 @@ export const messages = {
     },
     ai: {
       you: 'You',
+      system: 'System',
       send: 'Send',
       inputPlaceholder: 'Type your question. Enter to send (Shift+Enter for new line)',
+      copyFormulaHint: 'Click to copy formula',
       emptyTitle: 'Open a question to use AI',
       emptyDesc: 'Click "Ask AI" under a question to start.',
       disabledGuest: 'AI is unavailable in guest mode.',
@@ -610,6 +704,10 @@ export const messages = {
     }
   },
   'de-AT': {
+    appMeta: {
+      title: 'QED',
+      description: 'QED Lernplattform zum Durchsehen der Aufgabensammlung, Verfolgen des Lernstands und Simulieren von Prüfungen.'
+    },
     common: {
       confirm: 'Bestätigen',
       cancel: 'Abbrechen',
@@ -617,6 +715,7 @@ export const messages = {
       apply: 'Anwenden',
       loading: 'Lädt',
       unknown: 'Unbekannt',
+      copy: 'Kopieren',
       questions: '{count} Aufgaben',
       pointsUnit: 'Punkte',
       points: '{value} Punkte',
@@ -640,14 +739,23 @@ export const messages = {
     },
     settings: {
       title: 'Benutzereinstellungen',
+      dialogAria: 'Benutzereinstellungen',
       userProfiles: 'Benutzerprofile',
       profileDesc: 'Wechseln Sie den Benutzer, um isolierte Lernverläufe, Favoriten und Statistiken zu laden. Daten werden sicher nach Benutzerordnern gespeichert.',
       currentActive: 'Aktuell aktives Profil',
       loginOrCreate: 'Anmelden / Erstellen',
       switchUser: 'Benutzer wechseln',
       switchToLogin: 'Benutzernamen eingeben, um sich anzumelden oder ein neues Konto zu erstellen',
+      exampleProfile: 'z. B. jondoe',
       inputHint: 'Benutzername erlaubt nur Buchstaben, Zahlen, Bindestriche und Unterstriche.',
+      profileMissingConfirm: 'Benutzer "@{profile}" existiert nicht. Neues Konto erstellen?',
+      profileInvitePrompt: 'Konto "@{profile}" wird erstellt.\nBitte den 11-stelligen Einladungscode eingeben (beginnend mit %):',
+      profileInviteInvalid: 'Ungültiges Codeformat (muss mit % beginnen und genau 11 Zeichen haben).',
+      profileCreateSuccess: 'Profil erstellt. Wechsel zu @{profile}.',
+      profileActionFailed: 'Vorgang fehlgeschlagen: {message}',
       systemConfig: 'Systemkonfiguration',
+      catalogPath: 'Katalogpfad',
+      storagePath: 'Speicherpfad',
       showcaseTitle: 'Showcase-Modus ist aktiv',
       showcaseDesc: 'Im Showcase-Modus sind Anmeldung und AI deaktiviert, und es werden keine Benutzerdaten geschrieben.',
       librarySwitch: 'Bibliothek wechseln',
@@ -655,6 +763,7 @@ export const messages = {
       libraryHint: 'Sie können die Bibliotheks-ID oder den konfigurierten Ordnernamen eingeben.',
       aiTitle: 'AI Einstellungen',
       aiDesc: 'Mit „AI fragen“ unter jeder Aufgabe erhältst du Erklärungen. Standardmodell: gpt-5.4-mini.',
+      aiPromptLocaleHint: 'Der Standard-Prompt richtet sich nach der aktuellen UI-Sprache ({language}).',
       aiApiKey: 'Persönlicher API Key',
       aiApiKeyPlaceholder: 'sk-...',
       aiServerFallback: 'Wenn kein persönlicher Key gesetzt ist, wird der lokale Server-Key verwendet (falls vorhanden).',
@@ -662,6 +771,36 @@ export const messages = {
       aiModel: 'Modell',
       aiModelHint: 'Modellwechsel ist nur mit persönlichem Key verfügbar.',
       aiSave: 'AI Einstellungen speichern'
+    },
+    appInfo: {
+      ariaLabel: 'QED Projektinformationen',
+      title: 'Projektinformationen',
+      loading: 'Projektinformationen werden geladen...',
+      version: 'Aktuelle Version',
+      gitCommit: 'Aktueller Git-Commit',
+      catalogInfo: 'Aufgabenkatalog',
+      catalogStats: '{questions} Aufgaben · {suites} Suiten',
+      profileCount: 'Anzahl Profile',
+      github: 'GitHub',
+      authors: 'Autoren',
+      acknowledgements: 'Danksagung',
+      license: 'Lizenz',
+      refreshCatalog: 'Katalog aktualisieren',
+      refreshing: 'Aktualisiert...'
+    },
+    onboarding: {
+      title: 'Willkommen bei QED',
+      intro: 'Der lokale library-Ordner ist leer. Importiere zuerst alte Prüfungs-PDFs, bevor du übst.',
+      structureTitle: '1. Bibliotheksstruktur',
+      structureDesc: 'Der Ordner `library/` liegt im Projektstamm. Beim Start und bei Dateiänderungen indexiert QED ihn automatisch; jeder Unterordner gilt als eigenes Set/Suite.',
+      namingTitle: '2. PDF-Namensformat',
+      namingDescPrimary: 'Der Parser ist für die österreichische Matura-Mathematikstruktur gebaut. Dateinamen müssen dem erwarteten Muster entsprechen.',
+      namingDescSecondary: 'Für andere Quellen oder Curricula erweitere den Regex-Parser in `server/catalog.js`.',
+      expectedPattern: 'Erwartetes Muster:',
+      profilesTitle: '3. Profile & Verlauf',
+      profilesDesc: 'Jede Übung wird für das aktive Profil unter `profile/` gespeichert. Profile lassen sich in den Einstellungen ohne Neustart wechseln.',
+      footerLine1: 'Ziehe entpackte Matura-PDF-Ordner in `library/`.',
+      footerLine2: 'Sobald Dateien erkannt werden, lädt QED automatisch neu.'
     },
     guest: {
       statsTitle: 'Statistiken nicht verfügbar',
@@ -859,8 +998,10 @@ export const messages = {
     },
     ai: {
       you: 'Du',
+      system: 'System',
       send: 'Senden',
       inputPlaceholder: 'Frage eingeben. Enter senden (Shift+Enter Zeilenumbruch)',
+      copyFormulaHint: 'Formel zum Kopieren anklicken',
       emptyTitle: 'Öffne eine Aufgabe für AI',
       emptyDesc: 'Klicke unter der Aufgabe auf „AI fragen“.',
       disabledGuest: 'AI ist im Gastmodus nicht verfügbar.',

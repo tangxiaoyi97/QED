@@ -6,7 +6,7 @@ export const ATTEMPT_STATUSES = [...PROGRESS_STATUSES, 'skipped'];
 
 const DEFAULT_CONFIG = {
   version: 1,
-  locale: 'zh-CN',
+  locale: 'en-US',
   historyLimit: 500,
   probeHistoryLimit: 200,
   examMinutes: 270,
@@ -130,6 +130,18 @@ export function createStorage(panelRoot, profileId = 'tangxy') {
 
   async function writeAiHistory(aiHistory) {
     await writeJson(aiHistoryPath, normalizeAiHistory(aiHistory));
+  }
+
+  async function updateAiHistory(operation) {
+    return withProfileLock(lockKey, async () => {
+      const aiHistory = await readAiHistory();
+      const result = await operation(aiHistory);
+      await writeAiHistory(aiHistory);
+      return {
+        aiHistory: await readAiHistory(),
+        result
+      };
+    });
   }
 
   async function recordAttempt({
@@ -276,6 +288,7 @@ export function createStorage(panelRoot, profileId = 'tangxy') {
     writeExamDrafts,
     readAiHistory,
     writeAiHistory,
+    updateAiHistory,
     recordAttempt,
     setStar,
     addProbeResult

@@ -1107,7 +1107,10 @@ async function openAiForQuestion(questionId, surface = 'main') {
   aiRequestState.controller = controller;
   aiBusy.value = true;
   try {
-    const payload = await api.aiOpen(questionId, { signal: controller.signal });
+    const payload = await api.aiOpen(questionId, {
+      signal: controller.signal,
+      locale: locale.value
+    });
     // Always merge payload into local history so records are not "lost" even if
     // the user switched tabs/views while the request was in flight.
     applyAiPayload(payload);
@@ -1150,7 +1153,10 @@ async function sendAiMessage(conversationId, content) {
       conversationId,
       content,
       config.value?.ai?.model ?? 'gpt-5.4-mini',
-      { signal: controller.signal }
+      {
+        signal: controller.signal,
+        locale: locale.value
+      }
     );
     applyAiPayload(payload);
     if (payload?.conversation?.id) {

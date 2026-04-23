@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { api } from '../services/api.js';
 import { useI18n } from '../composables/useI18n.js';
 
-const { t } = useI18n();
+const { t, locale, localeOptions } = useI18n();
 const appVersion = __APP_VERSION__;
 
 const props = defineProps({
@@ -45,6 +45,9 @@ const libraryInput = ref('library');
 const aiApiKeyInput = ref('');
 const aiModelInput = ref('gpt-5.4-mini');
 const canEditModel = computed(() => aiApiKeyInput.value.trim().length > 0);
+const activeLocaleLabel = computed(
+  () => localeOptions.find((item) => item.value === locale.value)?.label ?? locale.value
+);
 
 watch(() => props.open, (val) => {
   if (val) {
@@ -71,25 +74,25 @@ async function handleCreate() {
   try {
     const { exists } = await api.checkProfile(p);
     if (!exists) {
-      const confirmCreate = window.confirm(`用户 "@${p}" 不存在。是否要创建全新账户？`);
+      const confirmCreate = window.confirm(t('settings.profileMissingConfirm', { profile: p }));
       if (!confirmCreate) return;
 
-      const token = window.prompt(`正在为 "@${p}" 创建账户。\n请输入 11 位邀请码（以 % 开头）：`);
+      const token = window.prompt(t('settings.profileInvitePrompt', { profile: p }));
       if (!token) return;
 
       if (!token.startsWith('%') || token.length !== 11) {
-        window.alert('邀请码格式错误（需为 % 开头且共 11 位）。');
+        window.alert(t('settings.profileInviteInvalid'));
         return;
       }
 
       await api.createProfile(p, token);
-      window.alert('创建成功！即将切换到新账户。');
+      window.alert(t('settings.profileCreateSuccess', { profile: p }));
     }
 
     emit('switch-profile', p);
     emit('close');
   } catch (error) {
-    window.alert(`操作失败: ${error.message}`);
+    window.alert(t('settings.profileActionFailed', { message: error?.message || t('errors.requestFailed') }));
   }
 }
 
@@ -112,7 +115,7 @@ function switchLibrary() {
 <template>
   <Teleport to="body">
     <div v-if="open" class="modal-backdrop" @click.self="$emit('close')">
-      <section class="modal-panel modal--settings" role="dialog" aria-modal="true" aria-label="Settings">
+      <section class="modal-panel modal--settings" role="dialog" aria-modal="true" :aria-label="t('settings.dialogAria')">
         <header class="modal-header">
           <div>
             <span class="eyebrow">{{ t('topNav.brandTitle') }} v{{ appVersion }}</span>
@@ -166,7 +169,7 @@ function switchLibrary() {
                     type="text"
                     v-model="newProfileInput"
                     class="settings-input"
-                    placeholder="e.g. jondoe"
+                    :placeholder="t('settings.exampleProfile')"
                     @input="newProfileInput = newProfileInput.replace(/[^a-zA-Z0-9_-]/g, '')"
                     @keyup.enter="handleCreate"
                   />
@@ -186,11 +189,11 @@ function switchLibrary() {
             <span class="eyebrow">{{ t('settings.systemConfig') }}</span>
             <div class="property-list">
               <div class="property-row">
-                <span class="property-label">Catalog Path</span>
+                <span class="property-label">{{ t('settings.catalogPath') }}</span>
                 <code class="property-code">{{ serverState.activeLibraryPathName || serverState.activeLibraryId || currentLibraryId || 'library' }}</code>
               </div>
               <div class="property-row">
-                <span class="property-label">Storage Path</span>
+                <span class="property-label">{{ t('settings.storagePath') }}</span>
                 <code class="property-code">
                   {{ isGuest ? '—' : `profile/${currentProfile}/` }}
                 </code>
@@ -228,6 +231,7 @@ function switchLibrary() {
           <section v-if="!isGuest && !serverState.showcaseMode" class="settings-card">
             <span class="eyebrow">{{ t('settings.aiTitle') }}</span>
             <p class="muted-copy">{{ t('settings.aiDesc') }}</p>
+            <p class="input-hint">{{ t('settings.aiPromptLocaleHint', { language: activeLocaleLabel }) }}</p>
 
             <div class="settings-item settings-item--ai">
               <label class="settings-label">{{ t('settings.aiApiKey') }}</label>

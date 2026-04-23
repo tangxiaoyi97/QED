@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import katex from 'katex';
+import { useI18n } from '../composables/useI18n.js';
 
 const props = defineProps({
   content: {
@@ -10,6 +11,7 @@ const props = defineProps({
     default: ''
   }
 });
+const { t, locale } = useI18n();
 
 const renderer = new marked.Renderer();
 
@@ -22,7 +24,7 @@ renderer.code = ({ text, lang }) => {
     <div class="ai-code-wrap">
       <div class="ai-code-head">
         ${langLabel}
-        <button type="button" class="ai-copy-chip" data-copy="${encoded}">Copy</button>
+        <button type="button" class="ai-copy-chip" data-copy="${encoded}">${escapeHtml(t('common.copy'))}</button>
       </div>
       <pre class="ai-code-block"><code>${safe}</code></pre>
     </div>
@@ -42,7 +44,10 @@ marked.setOptions({
   renderer
 });
 
-const renderedHtml = computed(() => renderMarkdown(props.content));
+const renderedHtml = computed(() => {
+  void locale.value;
+  return renderMarkdown(props.content);
+});
 
 // Use Private Use Area sentinels so marked/GFM never treats the placeholder as
 // markdown syntax. `__QED_MATH_0__` would otherwise be interpreted as bold and
@@ -89,12 +94,12 @@ function renderMath(latex, displayMode) {
   const encoded = encodeForCopy(safeLatex);
   if (displayMode) {
     return `
-      <div class="ai-math-block ai-copy-target" data-copy="${encoded}" tabindex="0" title="Click to copy formula">
+      <div class="ai-math-block ai-copy-target" data-copy="${encoded}" tabindex="0" title="${escapeHtml(t('ai.copyFormulaHint'))}">
         <div class="ai-math-body">${rendered}</div>
       </div>
     `;
   }
-  return `<span class="ai-math-inline ai-copy-target" data-copy="${encoded}" title="Click to copy formula">${rendered}</span>`;
+  return `<span class="ai-math-inline ai-copy-target" data-copy="${encoded}" title="${escapeHtml(t('ai.copyFormulaHint'))}">${rendered}</span>`;
 }
 
 function escapeHtml(value) {
