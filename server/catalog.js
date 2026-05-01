@@ -238,6 +238,7 @@ export async function loadCatalog(projectRoot, libraryRoot = path.join(projectRo
       statuses: [
         { id: 'unseen', label: '未做过' },
         { id: 'mastered', label: '完全会' },
+        { id: 'careless', label: '粗心' },
         { id: 'meh', label: '有点模糊' },
         { id: 'baffled', label: '不会' },
         { id: 'ignored', label: '排除' }

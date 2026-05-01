@@ -1,4 +1,4 @@
-export const MASTERY_STATUSES = ['mastered', 'meh', 'baffled', 'ignored'];
+export const MASTERY_STATUSES = ['mastered', 'careless', 'meh', 'baffled', 'ignored'];
 
 export const STATUS_META = {
   unseen: {
@@ -22,6 +22,13 @@ export const STATUS_META = {
     marker: 'half',
     descriptionKey: 'status.meh.description'
   },
+  careless: {
+    labelKey: 'status.careless.label',
+    shortLabelKey: 'status.careless.short',
+    tone: 'careless',
+    marker: 'dashed',
+    descriptionKey: 'status.careless.description'
+  },
   baffled: {
     labelKey: 'status.baffled.label',
     shortLabelKey: 'status.baffled.short',
@@ -33,7 +40,7 @@ export const STATUS_META = {
     labelKey: 'status.ignored.label',
     shortLabelKey: 'status.ignored.short',
     tone: 'ignored',
-    marker: 'dashed',
+    marker: 'slashed',
     descriptionKey: 'status.ignored.description'
   },
   starred: {
@@ -73,7 +80,7 @@ export const STATUS_META = {
   }
 };
 
-export const RANDOM_STATUS_FILTERS = ['unseen', 'meh', 'baffled'];
+export const RANDOM_STATUS_FILTERS = ['unseen', 'careless', 'meh', 'baffled'];
 
 /* ── Cached O(1) progress lookups ────────────────────────────────────── */
 const progressSetCache = new WeakMap();

@@ -140,6 +140,7 @@ export const messages = {
       unseen: { label: '未做过', short: '未做', description: '尚未记录掌握状态。' },
       mastered: { label: '完全会', short: '会', description: '不会再进入随机出题。' },
       meh: { label: '有点模糊', short: '模糊', description: '需要复习，随机概率小幅增加。' },
+      careless: { label: '粗心', short: '粗心', description: '思路已掌握，但需要复盘细节与计算。' },
       baffled: { label: '不会', short: '不会', description: '优先复现，随机概率大幅增加。' },
       ignored: { label: '排除', short: '排除', description: '和完全掌握一样不会进入随机出题。' },
       starred: { label: '星标', short: '星标', description: '收藏题目，不影响随机概率。' },
@@ -202,8 +203,11 @@ export const messages = {
       skip: '换一题',
       answer: '答案',
       question: '原题',
+      ai: 'AI',
+      surfaceControls: '题目视图切换',
       rating: {
         mastered: '完全会',
+        careless: '粗心',
         meh: '有点模糊',
         baffled: '不会',
         ignored: '排除'
@@ -219,6 +223,7 @@ export const messages = {
       last30Days: '过去 30 天',
       questionCount: '道题',
       masteredChip: '会 {count}',
+      carelessChip: '粗心 {count}',
       mehChip: '模糊 {count}',
       baffledChip: '不会 {count}',
       avgTime: '均耗时 {value}',
@@ -334,6 +339,22 @@ export const messages = {
       thinking: 'AI 正在思考',
       thinkingInitial: 'AI 正在阅读题目并准备解答'
     },
+    updates: {
+      ariaLabel: 'QED 新版本更新',
+      eyebrow: '新版本',
+      title: 'QED v{version}',
+      intro: '这次更新重做了题目工作区，新增粗心标签，并补齐了黑色模式与版本提示系统。',
+      highlightsTitle: '更新内容',
+      highlights: [
+        '新增「粗心」掌握标签，虚线圆现在专属表示粗心。',
+        '「排除」标签改为斜杠圆，和其他状态更容易区分。',
+        '题目页操作区从底部改为视图切换工具栏，答案、AI、评分按钮逻辑更清晰。',
+        'AI 对话窗、仪表盘和黑色模式完成新一轮视觉优化。',
+        '新增版本更新弹窗，确认后会把当前版本写入用户配置。'
+      ],
+      start: '开始吧！',
+      details: '详细日志'
+    },
     confirm: {
       eyebrow: 'Confirm',
       defaultTitle: '确认操作',
@@ -345,9 +366,10 @@ export const messages = {
     },
     quickMenu: {
       mastered: '● 完全会',
+      careless: '◌ 粗心',
       meh: '◐ 有点模糊',
       baffled: '○ 不会',
-      ignored: '◎ 排除',
+      ignored: '⊘ 排除',
       starred: '★ 星标'
     },
     pdf: {
@@ -501,6 +523,7 @@ export const messages = {
       unseen: { label: 'Unseen', short: 'New', description: 'No mastery state recorded yet.' },
       mastered: { label: 'Mastered', short: 'Mastered', description: 'Will no longer appear in random draw.' },
       meh: { label: 'Unclear', short: 'Unclear', description: 'Needs review, slightly higher random weight.' },
+      careless: { label: 'Careless', short: 'Careless', description: 'Concept is understood, but details or calculation need review.' },
       baffled: { label: 'Baffled', short: 'Baffled', description: 'High priority for reappearance.' },
       ignored: { label: 'Excluded', short: 'Excluded', description: 'Excluded from random draw like mastered.' },
       starred: { label: 'Starred', short: 'Starred', description: 'Bookmarked without affecting random weight.' },
@@ -563,8 +586,11 @@ export const messages = {
       skip: 'Reroll',
       answer: 'Answer',
       question: 'Question',
+      ai: 'AI',
+      surfaceControls: 'Question view controls',
       rating: {
         mastered: 'Mastered',
+        careless: 'Careless',
         meh: 'Unclear',
         baffled: 'Baffled',
         ignored: 'Excluded'
@@ -580,6 +606,7 @@ export const messages = {
       last30Days: 'Last 30 days',
       questionCount: 'questions',
       masteredChip: 'Mastered {count}',
+      carelessChip: 'Careless {count}',
       mehChip: 'Unclear {count}',
       baffledChip: 'Baffled {count}',
       avgTime: 'Avg time {value}',
@@ -695,6 +722,22 @@ export const messages = {
       thinking: 'AI is thinking',
       thinkingInitial: 'AI is reading the question and preparing a response'
     },
+    updates: {
+      ariaLabel: 'QED version update',
+      eyebrow: 'New version',
+      title: 'QED v{version}',
+      intro: 'This release redesigns the question workspace, adds the careless label, and improves dark mode plus version notices.',
+      highlightsTitle: 'What changed',
+      highlights: [
+        'Added the Careless mastery label; the dashed circle now belongs to careless mistakes.',
+        'Excluded questions now use a slashed-circle marker for clearer separation.',
+        'Question actions moved into a view toolbar with clearer answer, AI, and rating logic.',
+        'AI chat, dashboard polish, and dark mode coverage were tightened throughout.',
+        'A version update dialog now writes the acknowledged app version into the user config.'
+      ],
+      start: "Let's start",
+      details: 'Detailed log'
+    },
     confirm: {
       eyebrow: 'Confirm',
       defaultTitle: 'Confirm Action',
@@ -706,9 +749,10 @@ export const messages = {
     },
     quickMenu: {
       mastered: '● Mastered',
+      careless: '◌ Careless',
       meh: '◐ Unclear',
       baffled: '○ Baffled',
-      ignored: '◎ Excluded',
+      ignored: '⊘ Excluded',
       starred: '★ Starred'
     },
     pdf: {
@@ -862,6 +906,7 @@ export const messages = {
       unseen: { label: 'Unbearbeitet', short: 'Neu', description: 'Noch kein Lernstatus gespeichert.' },
       mastered: { label: 'Sicher', short: 'Sicher', description: 'Kommt nicht mehr in der Zufallsauswahl vor.' },
       meh: { label: 'Unsicher', short: 'Unsicher', description: 'Sollte wiederholt werden, leicht höhere Gewichtung.' },
+      careless: { label: 'Schlampig', short: 'Schlampig', description: 'Der Ansatz sitzt, aber Details oder Rechnung brauchen Wiederholung.' },
       baffled: { label: 'Nicht verstanden', short: 'Offen', description: 'Wird bevorzugt erneut angezeigt.' },
       ignored: { label: 'Ausgeschlossen', short: 'Aus', description: 'Wie sicher: nicht in der Zufallsauswahl.' },
       starred: { label: 'Favorit', short: 'Favorit', description: 'Gespeichert ohne Einfluss auf die Zufallsauswahl.' },
@@ -924,8 +969,11 @@ export const messages = {
       skip: 'Skippen',
       answer: 'Lösung',
       question: 'Aufgabe',
+      ai: 'AI',
+      surfaceControls: 'Aufgabenansicht wechseln',
       rating: {
         mastered: 'Sicher',
+        careless: 'Schlampig',
         meh: 'Unsicher',
         baffled: 'Nicht verstanden',
         ignored: 'Ausgeschlossen'
@@ -941,6 +989,7 @@ export const messages = {
       last30Days: 'Letzte 30 Tage',
       questionCount: 'Aufgaben',
       masteredChip: 'Sicher {count}',
+      carelessChip: 'Schlampig {count}',
       mehChip: 'Unsicher {count}',
       baffledChip: 'Offen {count}',
       avgTime: 'Ø Zeit {value}',
@@ -1056,6 +1105,22 @@ export const messages = {
       thinking: 'AI denkt nach',
       thinkingInitial: 'AI liest die Aufgabe und bereitet eine Antwort vor'
     },
+    updates: {
+      ariaLabel: 'QED Versionsupdate',
+      eyebrow: 'Neue Version',
+      title: 'QED v{version}',
+      intro: 'Dieses Release überarbeitet den Aufgabenbereich, ergänzt den Schlampig-Status und verbessert Dark Mode sowie Versionshinweise.',
+      highlightsTitle: 'Neu in dieser Version',
+      highlights: [
+        'Neuer Status „Schlampig”; der gestrichelte Kreis steht jetzt für Schlampigkeitsfehler.',
+        'Ausgeschlossene Aufgaben nutzen nun einen Kreis mit Schrägstrich.',
+        'Aktionen liegen jetzt in einer Ansichtsleiste mit klarerer Lösung-, AI- und Bewertungslogik.',
+        'AI Chat, Dashboard und Dark Mode wurden visuell nachgeschärft.',
+        'Ein Versionsdialog schreibt die bestätigte App-Version in die Benutzerkonfiguration.'
+      ],
+      start: 'Los gehts!',
+      details: 'Detailliertes Log'
+    },
     confirm: {
       eyebrow: 'Confirm',
       defaultTitle: 'Aktion bestätigen',
@@ -1067,9 +1132,10 @@ export const messages = {
     },
     quickMenu: {
       mastered: '● Sicher',
+      careless: '◌ Schlampig',
       meh: '◐ Unsicher',
       baffled: '○ Nicht verstanden',
-      ignored: '◎ Ausgeschlossen',
+      ignored: '⊘ Ausgeschlossen',
       starred: '★ Favorit'
     },
     pdf: {

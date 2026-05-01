@@ -2,11 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clampInteger, sanitizeModelName } from './utils.js';
 
-export const PROGRESS_STATUSES = ['mastered', 'meh', 'baffled', 'ignored'];
+export const PROGRESS_STATUSES = ['mastered', 'careless', 'meh', 'baffled', 'ignored'];
 export const ATTEMPT_STATUSES = [...PROGRESS_STATUSES, 'skipped'];
 
 const DEFAULT_CONFIG = {
   version: 1,
+  appVersion: '',
   locale: 'en-US',
   historyLimit: 500,
   probeHistoryLimit: 200,
@@ -18,6 +19,7 @@ const DEFAULT_CONFIG = {
   },
   randomWeights: {
     unseen: 1,
+    careless: 1.8,
     meh: 1.35,
     baffled: 2.8
   },
@@ -30,8 +32,9 @@ const DEFAULT_CONFIG = {
 };
 
 const DEFAULT_PROGRESS = {
-  version: 2,
+  version: 3,
   mastered: [],
+  careless: [],
   meh: [],
   baffled: [],
   ignored: [],
@@ -306,6 +309,10 @@ function normalizeConfig(value) {
   merged.ai = normalizeAiConfig(merged.ai);
   merged.ui = normalizeUiConfig(merged.ui);
   delete merged.randomWeights.understood;
+  merged.randomWeights.careless = Number.isFinite(Number(merged.randomWeights.careless))
+    ? Math.max(0, Number(merged.randomWeights.careless))
+    : DEFAULT_CONFIG.randomWeights.careless;
+  merged.appVersion = typeof merged.appVersion === 'string' ? merged.appVersion.trim().slice(0, 64) : '';
   merged.version = DEFAULT_CONFIG.version;
   return merged;
 }

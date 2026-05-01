@@ -23,7 +23,7 @@ function historyMasteryStatus(item) {
 }
 
 function statusCounts(ids) {
-  const counts = { mastered: 0, meh: 0, baffled: 0, ignored: 0, unseen: 0 };
+  const counts = { mastered: 0, careless: 0, meh: 0, baffled: 0, ignored: 0, unseen: 0 };
   for (const id of ids) {
     const s = getProgressStatus(props.progress, id);
     counts[s] = (counts[s] ?? 0) + 1;
@@ -101,7 +101,7 @@ const activeBreakdown = computed(() => {
 function recentSummary(days) {
   const cutoff = Date.now() - days * 24 * 3600 * 1000;
   const items = (props.history ?? []).filter((h) => new Date(h.at).getTime() >= cutoff);
-  const byStatus = { mastered: 0, meh: 0, baffled: 0, ignored: 0 };
+  const byStatus = { mastered: 0, careless: 0, meh: 0, baffled: 0, ignored: 0 };
   const ratedItems = [];
   for (const h of items) {
     const masteryStatus = historyMasteryStatus(h);
@@ -129,15 +129,16 @@ const statItems = computed(() => {
   const total = props.questions.length || 1;
   const counts = {
     baffled: props.progress.baffled?.length ?? 0,
+    careless: props.progress.careless?.length ?? 0,
     meh: props.progress.meh?.length ?? 0,
     mastered: props.progress.mastered?.length ?? 0,
     ignored: props.progress.ignored?.length ?? 0
   };
   counts.unseen = props.questions.filter(
-    (q) => !['mastered', 'meh', 'baffled', 'ignored'].some((k) => props.progress[k]?.includes(q.id))
+    (q) => !MASTERY_STATUSES.some((k) => props.progress[k]?.includes(q.id))
   ).length;
 
-  const order = ['baffled', 'meh', 'mastered', 'ignored', 'unseen'];
+  const order = ['baffled', 'careless', 'meh', 'mastered', 'ignored', 'unseen'];
   let offset = 0;
   return order.map((key, i) => {
     const value = counts[key] ?? 0;
@@ -175,7 +176,7 @@ function pt(cx, cy, r, pct) {
 }
 
 function startPractice(group) {
-  const filter = { statuses: ['baffled', 'meh', 'unseen'], topics: [], parts: [1, 2], years: [] };
+  const filter = { statuses: ['baffled', 'careless', 'meh', 'unseen'], topics: [], parts: [1, 2], years: [] };
   if (activeTab.value === 'topic') {
     filter.topics = group.key !== '__t2' ? [group.key] : [];
     filter.parts = group.key !== '__t2' ? [1] : [2];
@@ -256,6 +257,7 @@ const tabItems = computed(() => [
             <small>{{ t('stats.questionCount') }}</small>
             <div class="activity-breakdown">
               <span v-if="item.data.byStatus.mastered" class="act-chip act-chip--mastered">{{ t('stats.masteredChip', { count: item.data.byStatus.mastered }) }}</span>
+              <span v-if="item.data.byStatus.careless" class="act-chip act-chip--careless">{{ t('stats.carelessChip', { count: item.data.byStatus.careless }) }}</span>
               <span v-if="item.data.byStatus.meh" class="act-chip act-chip--meh">{{ t('stats.mehChip', { count: item.data.byStatus.meh }) }}</span>
               <span v-if="item.data.byStatus.baffled" class="act-chip act-chip--baffled">{{ t('stats.baffledChip', { count: item.data.byStatus.baffled }) }}</span>
             </div>
@@ -291,6 +293,9 @@ const tabItems = computed(() => [
             <div class="mastery-bar__seg mastery-bar__seg--meh" :style="{ width: `${(group.counts.meh / group.ids.length) * 100}%` }">
               <span v-if="group.counts.meh">{{ group.counts.meh }}</span>
             </div>
+            <div class="mastery-bar__seg mastery-bar__seg--careless" :style="{ width: `${(group.counts.careless / group.ids.length) * 100}%` }">
+              <span v-if="group.counts.careless">{{ group.counts.careless }}</span>
+            </div>
             <div class="mastery-bar__seg mastery-bar__seg--baffled" :style="{ width: `${(group.counts.baffled / group.ids.length) * 100}%` }">
               <span v-if="group.counts.baffled">{{ group.counts.baffled }}</span>
             </div>
@@ -301,7 +306,6 @@ const tabItems = computed(() => [
 
           <div class="breakdown-row__stats">
             <span class="pct-label">{{ group.pct }}%</span>
-            <span v-if="group.avgSec" class="stat-chip stat-chip--time">{{ t('stats.timeChip', { value: formatSeconds(group.avgSec) }) }}</span>
           </div>
 
           <button class="pill-button" type="button" @click="startPractice(group)">{{ t('stats.practice') }}</button>

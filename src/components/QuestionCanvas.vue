@@ -206,6 +206,9 @@ defineExpose({ scrollToQuestion });
           <button class="rating-button rating-button--mastered" type="button" @click="$emit('rate', question.id, 'mastered')">
             {{ t('workspace.rating.mastered') }}
           </button>
+          <button class="rating-button rating-button--careless" type="button" @click="$emit('rate', question.id, 'careless')">
+            {{ t('workspace.rating.careless') }}
+          </button>
           <button class="rating-button rating-button--meh" type="button" @click="$emit('rate', question.id, 'meh')">
             {{ t('workspace.rating.meh') }}
           </button>

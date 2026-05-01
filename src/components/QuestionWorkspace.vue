@@ -127,7 +127,70 @@ const activePdfLabel = computed(() => `${props.question?.label ?? 'Question'} ${
         </div>
       </div>
 
-      <section class="question-stage">
+      <nav class="workspace-toolbar" :aria-label="t('workspace.surfaceControls')">
+        <div class="workspace-toolbar__views">
+          <button
+            class="tool-segment"
+            :class="{ 'tool-segment--active': !answerVisible && !aiVisible }"
+            type="button"
+            :disabled="busy"
+            @click="$emit('show-question')"
+          >
+            {{ t('workspace.question') }}
+          </button>
+          <button
+            class="tool-segment"
+            :class="{ 'tool-segment--active': answerVisible && !aiVisible }"
+            type="button"
+            :disabled="concealed || busy"
+            @click="$emit('show-answer')"
+          >
+            {{ t('workspace.answer') }}
+          </button>
+          <button
+            v-if="!isGuest"
+            class="tool-segment"
+            :class="{ 'tool-segment--active': aiVisible }"
+            type="button"
+            :disabled="concealed || busy"
+            @click="$emit('ask-ai')"
+          >
+            {{ t('workspace.ai') }}
+          </button>
+        </div>
+
+        <span v-if="answerVisible && !question.hasSolution" class="inline-warning inline-warning--actions">
+          {{ t('workspace.missingSolution') }}
+        </span>
+
+        <div v-if="answerVisible && !aiVisible && !isGuest" class="rating-panel rating-panel--toolbar">
+          <button class="rating-button rating-button--mastered" type="button" @click="$emit('rate', 'mastered')">
+            {{ t('workspace.rating.mastered') }}
+          </button>
+          <button class="rating-button rating-button--careless" type="button" @click="$emit('rate', 'careless')">
+            {{ t('workspace.rating.careless') }}
+          </button>
+          <button class="rating-button rating-button--meh" type="button" @click="$emit('rate', 'meh')">
+            {{ t('workspace.rating.meh') }}
+          </button>
+          <button class="rating-button rating-button--baffled" type="button" @click="$emit('rate', 'baffled')">
+            {{ t('workspace.rating.baffled') }}
+          </button>
+          <button class="rating-button rating-button--ignored" type="button" @click="$emit('rate', 'ignored')">
+            {{ t('workspace.rating.ignored') }}
+          </button>
+        </div>
+
+        <button v-if="canSkip && !isGuest" class="pill-button workspace-toolbar__skip" type="button" :disabled="busy" @click="$emit('skip')">
+          {{ t('workspace.skip') }}
+        </button>
+
+        <div v-if="isGuest" class="guest-lock-row">
+          <span class="guest-lock-text">{{ t('guest.loginPrompt') }}</span>
+        </div>
+      </nav>
+
+      <section class="question-stage" :class="{ 'question-stage--ai': aiVisible }">
         <AiChatPanel
           v-if="aiVisible"
           :conversation="aiConversation"
@@ -145,61 +208,6 @@ const activePdfLabel = computed(() => `${props.question?.label ?? 'Question'} ${
           <small>{{ t('workspace.clickStartHint') }}</small>
         </button>
       </section>
-
-      <div class="workspace-actions">
-        <span v-if="answerVisible && !question.hasSolution" class="inline-warning inline-warning--actions">
-          {{ t('workspace.missingSolution') }}
-        </span>
-        <button
-          v-if="answerVisible || aiVisible"
-          class="pill-button"
-          type="button"
-          :disabled="busy"
-          @click="$emit('show-question')"
-        >
-          {{ t('workspace.backToQuestion') }}
-        </button>
-        <button
-          v-if="!answerVisible"
-          class="pill-button pill-button--dark"
-          type="button"
-          :disabled="concealed || busy"
-          @click="$emit('show-answer')"
-        >
-          {{ t('workspace.showAnswer') }}
-        </button>
-        <button
-          v-if="!isGuest && !aiVisible"
-          class="pill-button"
-          type="button"
-          :disabled="concealed || busy"
-          @click="$emit('ask-ai')"
-        >
-          {{ t('workspace.askAi') }}
-        </button>
-        <button v-if="canSkip && !isGuest" class="pill-button" type="button" :disabled="busy" @click="$emit('skip')">
-          {{ t('workspace.skip') }}
-        </button>
-        <!-- Rating panel — hidden for guests -->
-        <div v-if="answerVisible && !aiVisible && !isGuest" class="rating-panel rating-panel--inline">
-          <button class="rating-button rating-button--mastered" type="button" @click="$emit('rate', 'mastered')">
-            {{ t('workspace.rating.mastered') }}
-          </button>
-          <button class="rating-button rating-button--meh" type="button" @click="$emit('rate', 'meh')">
-            {{ t('workspace.rating.meh') }}
-          </button>
-          <button class="rating-button rating-button--baffled" type="button" @click="$emit('rate', 'baffled')">
-            {{ t('workspace.rating.baffled') }}
-          </button>
-          <button class="rating-button rating-button--ignored" type="button" @click="$emit('rate', 'ignored')">
-            {{ t('workspace.rating.ignored') }}
-          </button>
-        </div>
-        <!-- Guest lock prompt -->
-        <div v-if="isGuest" class="guest-lock-row">
-          <span class="guest-lock-text">{{ t('guest.loginPrompt') }}</span>
-        </div>
-      </div>
     </template>
   </main>
 </template>

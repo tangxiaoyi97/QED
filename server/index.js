@@ -64,7 +64,7 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const BOOTSTRAP_RANDOM_FILTERS = {
-  statuses: ['unseen', 'meh', 'baffled'],
+  statuses: ['unseen', 'careless', 'meh', 'baffled'],
   topics: [],
   parts: [1, 2],
   years: []
@@ -94,12 +94,26 @@ function getStorage(profileName) {
  * • recordAttempt() returns compatible empty state so the client's
  *   applyRemoteState() call is a no-op (empty progress/history).
  */
-const EMPTY_PROGRESS = Object.freeze({ mastered: [], meh: [], baffled: [], ignored: [], starred: [] });
+const EMPTY_PROGRESS = Object.freeze({ mastered: [], careless: [], meh: [], baffled: [], ignored: [], starred: [] });
 const EMPTY_EXAM_DRAFTS = Object.freeze({ version: 1, drafts: [] });
 const EMPTY_AI_HISTORY = Object.freeze({ version: 1, conversations: [] });
+function buildGuestConfig() {
+  return { historyLimit: 500, examMinutes: 270, locale: 'en-US', appVersion: APP_VERSION, ui: { theme: 'light' }, ai: { apiKey: '', model: DEFAULT_AI_MODEL } };
+}
+
+function buildGuestState() {
+  return {
+    progress: { ...EMPTY_PROGRESS },
+    history: [],
+    config: buildGuestConfig(),
+    examDrafts: { ...EMPTY_EXAM_DRAFTS, drafts: [] },
+    aiHistory: { ...EMPTY_AI_HISTORY, conversations: [] }
+  };
+}
+
 const guestStorage = {
   async ensure() {},
-  async readConfig()       { return { historyLimit: 500, examMinutes: 270, locale: 'en-US', ai: { apiKey: '', model: DEFAULT_AI_MODEL } }; },
+  async readConfig()       { return buildGuestConfig(); },
   async readProgress()     { return { ...EMPTY_PROGRESS }; },
   async readHistory()      { return []; },
   async readProbeHistory() { return []; },
@@ -115,24 +129,8 @@ const guestStorage = {
     };
   },
   async writeProgress()    {},
-  async recordAttempt()    {
-    return {
-      progress: { ...EMPTY_PROGRESS },
-      history: [],
-      config: { historyLimit: 500, examMinutes: 270, locale: 'en-US', ai: { apiKey: '', model: DEFAULT_AI_MODEL } },
-      examDrafts: { ...EMPTY_EXAM_DRAFTS, drafts: [] },
-      aiHistory: { ...EMPTY_AI_HISTORY, conversations: [] }
-    };
-  },
-  async setStar()          {
-    return {
-      progress: { ...EMPTY_PROGRESS },
-      history: [],
-      config: { historyLimit: 500, examMinutes: 270, locale: 'en-US', ai: { apiKey: '', model: DEFAULT_AI_MODEL } },
-      examDrafts: { ...EMPTY_EXAM_DRAFTS, drafts: [] },
-      aiHistory: { ...EMPTY_AI_HISTORY, conversations: [] }
-    };
-  },
+  async recordAttempt()    { return buildGuestState(); },
+  async setStar()          { return buildGuestState(); },
   async addProbeResult()   { return []; }
 };
 
@@ -383,10 +381,13 @@ app.post('/api/config', async (req, response, next) => {
     const current = await req.storage.readConfig();
     if (req.isGuest) return response.json({ config: current, aiMeta: buildAiMeta(current, req), server: buildServerState(req) });
 
-    const { locale, aiApiKey, aiModel, aiCustomPrompt, theme } = req.body ?? {};
+    const { locale, aiApiKey, aiModel, aiCustomPrompt, theme, appVersion } = req.body ?? {};
     const updated = { ...current };
     if (typeof locale === 'string' && locale.length > 0 && locale.length <= 32) {
       updated.locale = locale;
+    }
+    if (typeof appVersion === 'string' && appVersion.length <= 64) {
+      updated.appVersion = appVersion.trim();
     }
     updated.ai = {
       ...(updated.ai ?? {}),
@@ -1217,6 +1218,7 @@ function filterCandidates(questions, progress, filters = {}) {
 function pickWeighted(questions, progress, config) {
   const weights = config?.randomWeights ?? {
     unseen: 1,
+    careless: 1.8,
     meh: 1.35,
     baffled: 2.8
   };
@@ -1362,6 +1364,8 @@ function buildServerState(req) {
   const context = req?.library ?? resolveLibraryContext(readServerConfig(), DEFAULT_LIBRARY_ID);
   const serverConfig = req?.serverConfig ?? readServerConfig();
   return {
+    appVersion: APP_VERSION,
+    gitCommit: APP_GIT_COMMIT,
     showcaseMode: Boolean(serverConfig.showcaseMode),
     allowLibrarySwitch: Boolean(serverConfig.allowLibrarySwitch),
     activeLibraryId: context.id,

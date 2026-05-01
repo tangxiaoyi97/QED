@@ -36,6 +36,7 @@ const ConfirmDialog = defineAsyncComponent(() => import('./components/ConfirmDia
 const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'));
 const AppInfoModal = defineAsyncComponent(() => import('./components/AppInfoModal.vue'));
 const AiChatPanel = defineAsyncComponent(() => import('./components/AiChatPanel.vue'));
+const UpdateModal = defineAsyncComponent(() => import('./components/UpdateModal.vue'));
 
 const { locale, localeOptions, setLocale, t } = useI18n();
 const { profileId, isGuest, saveProfile } = useProfile();
@@ -66,7 +67,7 @@ const loading = ref(true);
 const bootError = ref('');
 const catalog = ref({ questions: [], suites: [], meta: { years: [], topics: [], parts: [], statuses: [] } });
 const config = ref({ historyLimit: 500, examMinutes: 270, ui: {} });
-const progress = ref({ mastered: [], meh: [], baffled: [], ignored: [], starred: [], attempts: {} });
+const progress = ref({ mastered: [], careless: [], meh: [], baffled: [], ignored: [], starred: [], attempts: {} });
 const history = ref([]);
 const probeHistory = ref([]);
 const examDrafts = ref({ version: 1, drafts: [] });
@@ -97,6 +98,8 @@ const aiMeta = ref({
   model: 'gpt-5.4-mini'
 });
 const serverState = ref({
+  appVersion: '',
+  gitCommit: null,
   showcaseMode: false,
   allowLibrarySwitch: false,
   activeLibraryId: 'library',
@@ -109,6 +112,7 @@ const examSetupOpen = ref(false);
 const searchOpen = ref(false);
 const settingsOpen = ref(false);
 const appInfoOpen = ref(false);
+const updateModalOpen = ref(false);
 const zoomPayload = ref(null);
 const leftCollapsed = ref(readStoredBoolean(UI_STORAGE_KEYS.leftCollapsed, false));
 const rightCollapsed = ref(readStoredBoolean(UI_STORAGE_KEYS.rightCollapsed, false));
@@ -134,7 +138,7 @@ const appInfoRefreshing = ref(false);
 const appInfoError = ref('');
 const appInfo = ref({
   appName: 'QED',
-  version: __APP_VERSION__,
+  version: '',
   gitCommit: null,
   questionCount: 0,
   suiteCount: 0,
@@ -144,6 +148,7 @@ const appInfo = ref({
   acknowledgements: ['Claude', 'Codex'],
   license: 'MIT'
 });
+const updateLogUrl = 'https://github.com/tangxiaoyi97/QED/blob/master/log.md';
 
 const filters = ref({
   statuses: [...RANDOM_STATUS_FILTERS],
@@ -290,6 +295,7 @@ const browseSourceLabel = computed(() => {
 const browseHeaderOptions = computed(() => [
   { value: 'starred', label: `★ ${statusOptionLabel('starred', progress.value.starred?.length ?? 0)}` },
   { value: 'status:baffled', label: statusOptionLabel('baffled', progress.value.baffled?.length ?? 0) },
+  { value: 'status:careless', label: statusOptionLabel('careless', progress.value.careless?.length ?? 0) },
   { value: 'status:meh', label: statusOptionLabel('meh', progress.value.meh?.length ?? 0) },
   { value: 'status:mastered', label: statusOptionLabel('mastered', progress.value.mastered?.length ?? 0) },
   { value: 'status:ignored', label: statusOptionLabel('ignored', progress.value.ignored?.length ?? 0) },
@@ -299,6 +305,7 @@ const browseHeaderOptions = computed(() => [
 
 const statsHeaderOptions = computed(() => [
   { value: 'baffled', label: statusOptionLabel('baffled', progress.value.baffled?.length ?? 0) },
+  { value: 'careless', label: statusOptionLabel('careless', progress.value.careless?.length ?? 0) },
   { value: 'meh', label: statusOptionLabel('meh', progress.value.meh?.length ?? 0) },
   { value: 'mastered', label: statusOptionLabel('mastered', progress.value.mastered?.length ?? 0) },
   { value: 'ignored', label: statusOptionLabel('ignored', progress.value.ignored?.length ?? 0) },
@@ -557,7 +564,7 @@ async function bootstrap() {
   loading.value = true;
   bootError.value = '';
   catalog.value = { questions: [], suites: [], meta: { years: [], topics: [], parts: [], statuses: [] } };
-  progress.value = { mastered: [], meh: [], baffled: [], ignored: [], starred: [], attempts: {} };
+  progress.value = { mastered: [], careless: [], meh: [], baffled: [], ignored: [], starred: [], attempts: {} };
   history.value = [];
   probeHistory.value = [];
   examDrafts.value = { version: 1, drafts: [] };
@@ -579,8 +586,9 @@ async function bootstrap() {
       if (catalogData?.server) {
         serverState.value = catalogData.server;
         if (catalogData.server.activeLibraryId) saveLibrary(catalogData.server.activeLibraryId);
+        appInfo.value = { ...appInfo.value, version: catalogData.server.appVersion || '', gitCommit: catalogData.server.gitCommit ?? null };
       }
-      config.value = { historyLimit: 500, examMinutes: 270, locale: locale.value, ui: { theme: theme.value } };
+      config.value = { historyLimit: 500, examMinutes: 270, locale: locale.value, appVersion: serverState.value.appVersion, ui: { theme: theme.value } };
       aiMeta.value = {
         hasServerApiKey: false,
         hasUserApiKey: false,
@@ -607,6 +615,7 @@ async function bootstrap() {
       if (payload.state.server) {
         serverState.value = payload.state.server;
         if (payload.state.server.activeLibraryId) saveLibrary(payload.state.server.activeLibraryId);
+        appInfo.value = { ...appInfo.value, version: payload.state.server.appVersion || '', gitCommit: payload.state.server.gitCommit ?? null };
       }
       selectedSuiteId.value = suites.value[0]?.id ?? '';
       browseSourceValue.value = selectedSuiteId.value ? `suite:${selectedSuiteId.value}` : 'status:baffled';
@@ -643,6 +652,7 @@ async function bootstrap() {
     if (route.path !== targetPath) {
       router.replace(targetPath);
     }
+    maybeOpenUpdateModal();
   }
 }
 
@@ -787,6 +797,34 @@ async function refreshCatalogFromInfoModal() {
     appInfoError.value = error.message || t('errors.requestFailed');
   } finally {
     appInfoRefreshing.value = false;
+  }
+}
+
+function maybeOpenUpdateModal() {
+  if (effectiveGuest.value) return;
+  const currentVersion = serverState.value.appVersion;
+  if (!currentVersion) return;
+  const storedVersion = typeof config.value?.appVersion === 'string' ? config.value.appVersion.trim() : '';
+  if (storedVersion === currentVersion) return;
+  updateModalOpen.value = true;
+}
+
+async function acknowledgeUpdate({ openLog = false } = {}) {
+  updateModalOpen.value = false;
+  if (openLog && typeof window !== 'undefined') {
+    window.open(updateLogUrl, '_blank', 'noopener,noreferrer');
+  }
+  if (!effectiveGuest.value) {
+    const currentVersion = serverState.value.appVersion;
+    try {
+      const payload = await api.setConfig({ appVersion: currentVersion });
+      applyRemoteState(payload);
+    } catch {
+      config.value = {
+        ...config.value,
+        appVersion: currentVersion
+      };
+    }
   }
 }
 
@@ -1630,7 +1668,7 @@ async function markExamQuestionsBaffled(ids) {
 
 function startPracticeFromStats({ statuses, topics, parts, years }) {
   filters.value = {
-    statuses: statuses ?? ['unseen', 'meh', 'baffled'],
+    statuses: statuses ?? [...RANDOM_STATUS_FILTERS],
     topics: topics ?? [],
     parts: parts ?? [1, 2],
     years: years ?? []
@@ -2057,6 +2095,12 @@ function scoreToNote(score) {
       @close="appInfoOpen = false"
       @refresh-catalog="refreshCatalogFromInfoModal"
     />
+    <UpdateModal
+      :open="updateModalOpen"
+      :app-version="serverState.appVersion"
+      @start="acknowledgeUpdate()"
+      @details="acknowledgeUpdate({ openLog: true })"
+    />
     <PdfZoomModal :open="Boolean(zoomPayload)" :payload="zoomPayload" @close="zoomPayload = null" />
     <ExamSetupModal
       :open="examSetupOpen"
@@ -2079,6 +2123,7 @@ function scoreToNote(score) {
       <div v-if="quickMenu.open" class="quick-menu-backdrop" @click="closeQuickMenu" @contextmenu.prevent="closeQuickMenu">
         <div class="quick-menu" :style="{ left: `${quickMenu.x}px`, top: `${quickMenu.y}px` }" @click.stop>
           <button type="button" @click="quickMarkQuestion(quickMenu.id, 'mastered')">{{ t('quickMenu.mastered') }}</button>
+          <button type="button" @click="quickMarkQuestion(quickMenu.id, 'careless')">{{ t('quickMenu.careless') }}</button>
           <button type="button" @click="quickMarkQuestion(quickMenu.id, 'meh')">{{ t('quickMenu.meh') }}</button>
           <button type="button" @click="quickMarkQuestion(quickMenu.id, 'baffled')">{{ t('quickMenu.baffled') }}</button>
           <button type="button" @click="quickMarkQuestion(quickMenu.id, 'ignored')">{{ t('quickMenu.ignored') }}</button>
