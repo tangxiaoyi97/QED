@@ -343,15 +343,7 @@ export const messages = {
       ariaLabel: 'QED 新版本更新',
       eyebrow: '新版本',
       title: 'QED v{version}',
-      intro: '这次更新重做了题目工作区，新增粗心标签，并补齐了黑色模式与版本提示系统。',
       highlightsTitle: '更新内容',
-      highlights: [
-        '新增「粗心」掌握标签，虚线圆现在专属表示粗心。',
-        '「排除」标签改为斜杠圆，和其他状态更容易区分。',
-        '题目页操作区从底部改为视图切换工具栏，答案、AI、评分按钮逻辑更清晰。',
-        'AI 对话窗、仪表盘和黑色模式完成新一轮视觉优化。',
-        '新增版本更新弹窗，确认后会把当前版本写入用户配置。'
-      ],
       start: '开始吧！',
       details: '详细日志'
     },
@@ -726,15 +718,7 @@ export const messages = {
       ariaLabel: 'QED version update',
       eyebrow: 'New version',
       title: 'QED v{version}',
-      intro: 'This release redesigns the question workspace, adds the careless label, and improves dark mode plus version notices.',
       highlightsTitle: 'What changed',
-      highlights: [
-        'Added the Careless mastery label; the dashed circle now belongs to careless mistakes.',
-        'Excluded questions now use a slashed-circle marker for clearer separation.',
-        'Question actions moved into a view toolbar with clearer answer, AI, and rating logic.',
-        'AI chat, dashboard polish, and dark mode coverage were tightened throughout.',
-        'A version update dialog now writes the acknowledged app version into the user config.'
-      ],
       start: "Let's start",
       details: 'Detailed log'
     },
@@ -1109,15 +1093,7 @@ export const messages = {
       ariaLabel: 'QED Versionsupdate',
       eyebrow: 'Neue Version',
       title: 'QED v{version}',
-      intro: 'Dieses Release überarbeitet den Aufgabenbereich, ergänzt den Schlampig-Status und verbessert Dark Mode sowie Versionshinweise.',
       highlightsTitle: 'Neu in dieser Version',
-      highlights: [
-        'Neuer Status „Schlampig”; der gestrichelte Kreis steht jetzt für Schlampigkeitsfehler.',
-        'Ausgeschlossene Aufgaben nutzen nun einen Kreis mit Schrägstrich.',
-        'Aktionen liegen jetzt in einer Ansichtsleiste mit klarerer Lösung-, AI- und Bewertungslogik.',
-        'AI Chat, Dashboard und Dark Mode wurden visuell nachgeschärft.',
-        'Ein Versionsdialog schreibt die bestätigte App-Version in die Benutzerkonfiguration.'
-      ],
       start: 'Los gehts!',
       details: 'Detailliertes Log'
     },

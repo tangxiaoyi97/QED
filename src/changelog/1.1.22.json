@@ -1,0 +1,29 @@
+{
+  "version": "1.1.22",
+  "locales": {
+    "zh-CN": {
+      "intro": "这次更新重做了题目工作区，新增粗心标签，并补齐了黑色模式与版本提示系统。",
+      "highlights": [
+        "新增「粗心」掌握标签，虚线圆现在专属表示粗心。",
+        "「排除」标签改为斜杠圆，和其他状态更容易区分。",
+        "题目页操作区从底部改为视图切换工具栏，答案、AI、评分按钮逻辑更清晰。",
+        "AI 对话窗、仪表盘和黑色模式完成新一轮视觉优化。",
+        "新增版本更新弹窗，确认后会把当前版本写入用户配置。"
+      ]
+    },
+    "en-US": {
+      "intro": "wowwww a new release!!!",
+      "highlights": [
+        "hello world",
+        "yeah thats it"
+      ]
+    },
+    "de-AT": {
+      "intro": "alle meine entchen",
+      "highlights": [
+        "schwimmen auf em see",
+        "ein paar änderungen etc etc ykyk"
+      ]
+    }
+  }
+}

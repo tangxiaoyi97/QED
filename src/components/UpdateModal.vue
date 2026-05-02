@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useI18n } from '../composables/useI18n.js';
+import { getChangelog } from '../changelog/index.js';
 
 const props = defineProps({
   open: {
@@ -15,11 +16,10 @@ const props = defineProps({
 
 defineEmits(['start', 'details']);
 
-const { t } = useI18n();
-const highlights = computed(() => {
-  const value = t('updates.highlights');
-  return Array.isArray(value) ? value : [];
-});
+const { t, locale } = useI18n();
+const changelog = computed(() => getChangelog(props.appVersion, locale.value));
+const intro = computed(() => changelog.value?.intro ?? '');
+const highlights = computed(() => changelog.value?.highlights ?? []);
 </script>
 
 <template>
@@ -29,7 +29,7 @@ const highlights = computed(() => {
         <header class="update-panel__header">
           <span class="eyebrow">{{ t('updates.eyebrow') }}</span>
           <h2>{{ t('updates.title', { version: appVersion }) }}</h2>
-          <p>{{ t('updates.intro') }}</p>
+          <p>{{ intro }}</p>
         </header>
 
         <section class="update-panel__body">
