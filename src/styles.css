@@ -24,6 +24,7 @@
   --red: #c94a42;
   --gray: #89837b;
   --blue: #3a6ff7;
+  --gold: #d4a02a;
   --chart-1: #000000;
   --chart-2: #404040;
   --chart-3: #777777;
@@ -61,6 +62,13 @@
   --chart-4: #777777;
   --chart-5: #4a4a4a;
   --chart-6: #2b2b2b;
+  --green: #5cc28a;
+  --orange: #e5a05a;
+  --yellow: #e8c45a;
+  --red: #ed7a72;
+  --gray: #a8a298;
+  --blue: #7d9fff;
+  --gold: #e8c068;
 }
 
 :root[data-theme='dark'] .app-shell {
@@ -648,35 +656,36 @@ button:disabled {
 }
 
 .status-chip--mastered {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  color: rgba(255, 255, 255, 0.95);
-  box-shadow: rgba(15, 52, 96, 0.25) 0 4px 12px, rgba(0, 0, 0, 0.08) 0 0 0 0.5px;
+  background: linear-gradient(135deg, #1f5b3c 0%, #267349 50%, var(--green) 100%);
+  color: #fff;
+  box-shadow: rgba(47, 138, 91, 0.28) 0 4px 12px, rgba(0, 0, 0, 0.08) 0 0 0 0.5px;
 }
 
 .status-chip--meh {
-  background: linear-gradient(135deg, #4a4a4a 0%, #626262 100%);
+  background: linear-gradient(135deg, #8a6e0a 0%, #b08a14 50%, var(--yellow) 100%);
   color: #fff;
-  box-shadow: rgba(74, 74, 74, 0.2) 0 4px 12px;
+  box-shadow: rgba(208, 160, 0, 0.26) 0 4px 12px;
 }
 
 .status-chip--careless {
-  background: var(--surface);
-  color: var(--text);
-  outline: 1.5px dashed var(--border);
+  background: rgba(200, 121, 36, 0.1);
+  color: var(--orange);
+  outline: 1.5px dashed var(--orange);
   outline-offset: -3px;
+  box-shadow: none;
 }
 
 .status-chip--baffled {
-  background: #fff;
-  color: #000;
-  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px, rgba(0, 0, 0, 0.04) 0 4px 8px;
+  background: linear-gradient(135deg, #8e3530 0%, #a83e36 50%, var(--red) 100%);
+  color: #fff;
+  box-shadow: rgba(201, 74, 66, 0.28) 0 4px 12px;
 }
 
 .status-chip--ignored {
-  background: #fff;
-  color: var(--text-muted);
+  background: rgba(137, 131, 123, 0.06);
+  color: var(--gray);
   box-shadow: none;
-  outline: 1.5px dashed #aaa;
+  outline: 1.5px dashed var(--gray);
   outline-offset: -3px;
 }
 
@@ -706,12 +715,12 @@ button:disabled {
 
 .star-button:hover:not(:disabled) {
   transform: translateY(-1px) scale(1.03);
-  color: #000;
-  box-shadow: rgba(0, 0, 0, 0.08) 0 0 0 1px, rgba(0, 0, 0, 0.08) 0 8px 16px;
+  color: var(--gold);
+  box-shadow: rgba(212, 160, 42, 0.2) 0 0 0 1px, rgba(212, 160, 42, 0.2) 0 8px 16px;
 }
 
 .star-button--active {
-  background: #000;
+  background: var(--gold);
   color: #fff;
 }
 
@@ -1305,23 +1314,28 @@ button:disabled {
 }
 
 .rating-button--mastered {
-  color: #000;
+  color: var(--green);
+  box-shadow: rgba(47, 138, 91, 0.22) 0 0 0 1px, rgba(47, 138, 91, 0.05) 0 1px 2px;
 }
 
 .rating-button--careless {
-  color: var(--text);
+  color: var(--orange);
+  box-shadow: rgba(200, 121, 36, 0.22) 0 0 0 1px, rgba(200, 121, 36, 0.05) 0 1px 2px;
 }
 
 .rating-button--meh {
-  color: #333;
+  color: var(--yellow);
+  box-shadow: rgba(208, 160, 0, 0.26) 0 0 0 1px, rgba(208, 160, 0, 0.05) 0 1px 2px;
 }
 
 .rating-button--baffled {
-  color: #000;
+  color: var(--red);
+  box-shadow: rgba(201, 74, 66, 0.22) 0 0 0 1px, rgba(201, 74, 66, 0.05) 0 1px 2px;
 }
 
 .rating-button--ignored {
-  color: var(--text-muted);
+  color: var(--gray);
+  box-shadow: rgba(137, 131, 123, 0.22) 0 0 0 1px, rgba(137, 131, 123, 0.05) 0 1px 2px;
 }
 
 .inspector,
@@ -1518,27 +1532,29 @@ button:disabled {
 }
 
 .large-status--mastered {
-  background: #f0f0f0;
+  background: color-mix(in srgb, var(--green) 10%, var(--surface-muted));
+  box-shadow: var(--shadow-inset), inset 3px 0 0 var(--green);
 }
 
 .large-status--meh {
-  background: #f4f4f4;
+  background: color-mix(in srgb, var(--yellow) 10%, var(--surface-muted));
+  box-shadow: var(--shadow-inset), inset 3px 0 0 var(--yellow);
 }
 
 .large-status--careless {
-  background: var(--surface-muted);
-  outline: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--orange) 8%, var(--surface-muted));
+  outline: 1px dashed var(--orange);
   outline-offset: -4px;
 }
 
 .large-status--baffled {
-  background: #fff;
-  outline: 1px solid var(--border);
+  background: color-mix(in srgb, var(--red) 10%, var(--surface-muted));
+  box-shadow: var(--shadow-inset), inset 3px 0 0 var(--red);
 }
 
 .large-status--ignored {
-  background: #fff;
-  outline: 1px solid #888;
+  background: var(--surface-muted);
+  outline: 1px solid var(--gray);
   outline-offset: -4px;
 }
 
@@ -3602,7 +3618,6 @@ fieldset p {
 :root[data-theme='dark'] .ai-chat-log,
 :root[data-theme='dark'] .ai-message--thinking,
 :root[data-theme='dark'] .mode-switch,
-:root[data-theme='dark'] .large-status,
 :root[data-theme='dark'] .timer-readout,
 :root[data-theme='dark'] .search-input,
 :root[data-theme='dark'] .sidebar-title-select select,
@@ -3670,9 +3685,7 @@ fieldset p {
 :root[data-theme='dark'] .large-status--careless,
 :root[data-theme='dark'] .large-status--baffled,
 :root[data-theme='dark'] .large-status--ignored {
-  background: #202020;
   color: var(--text);
-  outline-color: var(--border);
 }
 
 :root[data-theme='dark'] .pdf-state {
