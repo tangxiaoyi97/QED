@@ -1,14 +1,11 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { readFileSync } from 'node:fs';
 
-const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url)));
-
+// The application version is sourced from the running server (via /api/about
+// and the bootstrap response) rather than baked into the bundle, so a single
+// build can be deployed against newer servers without going stale.
 export default defineConfig({
   plugins: [vue()],
-  define: {
-    __APP_VERSION__: JSON.stringify(version)
-  },
   server: {
     middlewareMode: true
   },

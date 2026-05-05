@@ -4,7 +4,6 @@ import { api } from '../services/api.js';
 import { useI18n } from '../composables/useI18n.js';
 
 const { t, locale, localeOptions } = useI18n();
-const appVersion = __APP_VERSION__;
 const NORMAL_INVITE_RE = /^%[A-Za-z0-9]{10}$/;
 const SPECIAL_SECRET_RE = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9]{12,128}$/;
 
@@ -14,6 +13,7 @@ const props = defineProps({
   isGuest: { type: Boolean, default: true },
   currentLibraryId: { type: String, default: 'library' },
   currentTheme: { type: String, default: 'light' },
+  appVersion: { type: String, default: '' },
   serverState: {
     type: Object,
     default: () => ({
@@ -214,7 +214,7 @@ function toggleTheme(event) {
       <section v-if="!registrationOpen" class="modal-panel modal--settings" role="dialog" aria-modal="true" :aria-label="t('settings.dialogAria')">
         <header class="modal-header">
           <div>
-            <span class="eyebrow">{{ t('topNav.brandTitle') }} v{{ appVersion }}</span>
+            <span class="eyebrow">{{ t('topNav.brandTitle') }}<template v-if="appVersion"> v{{ appVersion }}</template></span>
             <h2 class="modal-title">{{ t('settings.title') }}</h2>
           </div>
           <button class="icon-button" type="button" @click="$emit('close')">✕</button>

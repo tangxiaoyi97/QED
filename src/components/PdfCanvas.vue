@@ -144,7 +144,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   renderToken += 1;
   resizeObserver?.disconnect();
-  activeRenderTask?.cancel?.();
+  // Fire-and-forget cancellation here is fine: the component is going away,
+  // so we don't need to await the prior render's promise to settle.
+  if (activeRenderTask) {
+    try { activeRenderTask.cancel(); } catch { /* ignore */ }
+    activeRenderTask = null;
+  }
   if (resizeTimer) window.clearTimeout(resizeTimer);
   // Don't destroy pdfDocument here — the module-level LRU cache
   // manages document lifecycle.  Destroying it would invalidate
@@ -200,17 +205,44 @@ async function loadDocument() {
   }
 }
 
+async function cancelActiveRender() {
+  // PDF.js's renderTask.cancel() is asynchronous: it schedules cancellation
+  // but already-queued canvas commands can keep running until the task's
+  // promise rejects with RenderingCancelledException. WebKit (Safari on Mac
+  // and iPad) is strict about this — if we detach the canvas while a stale
+  // render is still flushing, the next render can present mixed output and
+  // the user sees the wrong PDF when toggling between question and answer.
+  // Awaiting the rejection here makes the canvas swap deterministic across
+  // Chromium, Firefox and WebKit.
+  if (!activeRenderTask) return;
+  const task = activeRenderTask;
+  activeRenderTask = null;
+  try {
+    task.cancel();
+    await task.promise;
+  } catch {
+    // RenderingCancelledException (or any failure of the prior render) is
+    // expected here — we're tearing it down.
+  }
+}
+
 async function renderPage(existingToken = renderToken) {
   const token = existingToken;
   await nextTick();
   if (!pdfDocument || !viewport.value || !canvasHost.value) return;
+  if (token !== renderToken) return;
 
-  activeRenderTask?.cancel?.();
+  await cancelActiveRender();
+  if (token !== renderToken) return;
+
   clearCanvas();
   loading.value = true;
   try {
     const page = await pdfDocument.getPage(currentPage.value);
-    if (token !== renderToken) return;
+    if (token !== renderToken) {
+      page.cleanup?.();
+      return;
+    }
 
     const baseViewport = page.getViewport({ scale: 1 });
     const box = viewport.value.getBoundingClientRect();

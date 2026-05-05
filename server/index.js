@@ -4,14 +4,14 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { PDFDocument } from 'pdf-lib';
 import { loadCatalog } from './catalog.js';
 import { createStorage, PROGRESS_STATUSES } from './storage.js';
 import { createSearchIndex } from './search-index.js';
 import { getScoreTiers } from './score-parser.js';
-import { validateToken } from './tokens.js';
+import { restoreToken, validateToken } from './tokens.js';
 import { loadPdfjs } from './pdfjs.js';
 import { clampInteger, sanitizeModelName } from './utils.js';
 
@@ -864,7 +864,13 @@ app.get('/api/pdf/:kind/:id', async (request, response, next) => {
       return;
     }
 
-    response.sendFile(filePath);
+    // Library PDFs are static at runtime — let the browser revalidate via
+    // ETag/Last-Modified instead of refetching the whole file every switch.
+    response.sendFile(filePath, {
+      etag: true,
+      lastModified: true,
+      headers: { 'Cache-Control': 'private, max-age=600' }
+    });
   } catch (error) {
     next(error);
   }
@@ -968,15 +974,29 @@ app.post('/api/profiles/create', async (req, res, next) => {
       return res.status(400).json({ error: 'INVALID_TOKEN', message: '邀请码无效或已过期。' });
     }
 
+    const trimmedToken = hasNormalToken ? token.trim() : '';
     const isValid = await validateToken(appRoot, hasNormalToken
-      ? { token: token.trim() }
+      ? { token: trimmedToken }
       : { specialTokenHash: specialTokenHash.trim().toLowerCase() });
     if (!isValid) {
       return res.status(403).json({ error: 'INVALID_TOKEN', message: '邀请码无效或已过期。' });
     }
 
-    const storage = getStorage(safeId);
-    await storage.ensure();
+    // Normal tokens are consumed by validateToken(). If profile creation
+    // fails (disk error during ensure(), etc.), put the token back so the
+    // user can retry without burning their invite code.
+    try {
+      const storage = getStorage(safeId);
+      await storage.ensure();
+    } catch (err) {
+      if (hasNormalToken) {
+        await restoreToken(appRoot, trimmedToken).catch((restoreErr) => {
+          console.warn('[profiles/create] failed to restore token:', restoreErr?.message || restoreErr);
+        });
+      }
+      return next(err);
+    }
+
     res.json({ ok: true, id: safeId });
   } catch (err) {
     next(err);
@@ -1216,6 +1236,8 @@ function filterCandidates(questions, progress, filters = {}) {
 }
 
 function pickWeighted(questions, progress, config) {
+  if (!Array.isArray(questions) || questions.length === 0) return null;
+
   const weights = config?.randomWeights ?? {
     unseen: 1,
     careless: 1.8,
@@ -1228,6 +1250,10 @@ function pickWeighted(questions, progress, config) {
     weight: weights[getProgressStatus(progress, question.id)] ?? 1
   }));
   const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+  // If every weight rounded to 0, fall back to a uniform pick.
+  if (total <= 0) {
+    return weighted[Math.floor(Math.random() * weighted.length)].question;
+  }
   let cursor = Math.random() * total;
 
   for (const item of weighted) {
@@ -1235,7 +1261,7 @@ function pickWeighted(questions, progress, config) {
     if (cursor <= 0) return item.question;
   }
 
-  return weighted.at(-1).question;
+  return weighted.at(-1)?.question ?? null;
 }
 
 function toSet(value) {
@@ -1274,20 +1300,14 @@ function getProfileCount() {
 }
 
 function ensureServerConfig() {
+  // Only write the file when it doesn't exist. Existing files are left alone
+  // so manual edits (formatting, key order, extra notes) survive restarts —
+  // readServerConfig() always normalizes the in-memory copy at read time.
   try {
-    if (!fs.existsSync(serverConfigPath)) {
-      fs.writeFileSync(serverConfigPath, `${JSON.stringify(normalizeServerConfig({}), null, 2)}\n`, 'utf8');
-      return;
-    }
-    const raw = fs.readFileSync(serverConfigPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const normalized = normalizeServerConfig(parsed);
-    const nextRaw = `${JSON.stringify(normalized, null, 2)}\n`;
-    if (raw !== nextRaw) {
-      fs.writeFileSync(serverConfigPath, nextRaw, 'utf8');
-    }
+    if (fs.existsSync(serverConfigPath)) return;
+    fs.writeFileSync(serverConfigPath, `${JSON.stringify(normalizeServerConfig({}), null, 2)}\n`, 'utf8');
   } catch (error) {
-    console.warn('[server-config] failed to ensure server-config.json:', error.message);
+    console.warn('[server-config] failed to write server-config.json:', error.message);
   }
 }
 
@@ -1491,8 +1511,13 @@ function resolveLibraryContext(serverConfig, requestedLibraryId) {
 
 function makeLibraryCacheKey(id, absolutePath) {
   const safeId = normalizeLibraryId(id, DEFAULT_LIBRARY_ID);
-  const encodedPath = Buffer.from(String(absolutePath || ''), 'utf8').toString('base64url').slice(0, 40);
-  return `${safeId}-${encodedPath || 'root'}`;
+  // Use a sha256 of the full absolute path so that two libraries whose paths
+  // share a long common prefix can never collide on a truncated cache key.
+  const pathHash = createHash('sha256')
+    .update(String(absolutePath || ''), 'utf8')
+    .digest('hex')
+    .slice(0, 16);
+  return `${safeId}-${pathHash}`;
 }
 
 function getPdfPathsForKind(catalog, kind, id) {

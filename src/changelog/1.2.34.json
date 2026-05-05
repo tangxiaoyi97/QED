@@ -1,0 +1,28 @@
+{
+  "version": "1.2.34",
+  "locales": {
+    "zh-CN": {
+      "intro": "稳定性更新。",
+      "highlights": [
+        "修复 Safari 切换原题与答案时显示错乱。",
+        "切换账号不再重新加载题库。",
+        "题目 PDF 启用浏览器缓存。",
+        "后端缓存与文件锁稳定性修复。"
+      ]
+    },
+    "en-US": {
+      "intro": "Stability update.",
+      "highlights": [
+        "Fix Safari showing the wrong PDF when toggling question/answer.",
+        "etc etc....."
+      ]
+    },
+    "de-AT": {
+      "intro": "Stabilitäts-Update.",
+      "highlights": [
+        "Safari: Aufgabe/Lösung-Wechsel",
+        "etc etc..."
+      ]
+    }
+  }
+}

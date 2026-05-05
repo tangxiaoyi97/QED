@@ -558,12 +558,38 @@ watch(
 // profiles rapidly across multiple tabs or clicks.
 let _bootstrapGen = 0;
 
+// In-memory cache of catalogs per library. Switching profiles within the
+// same library reuses the cached catalog and only re-fetches user state
+// via /api/state, which avoids re-downloading the question list.
+const catalogCache = new Map();
+
+const EMPTY_CATALOG = { questions: [], suites: [], meta: { years: [], topics: [], parts: [], statuses: [] } };
+
+function applyServerStateFromPayload(serverPayload) {
+  if (!serverPayload) return;
+  serverState.value = serverPayload;
+  if (serverPayload.activeLibraryId) saveLibrary(serverPayload.activeLibraryId);
+  appInfo.value = {
+    ...appInfo.value,
+    version: serverPayload.appVersion || '',
+    gitCommit: serverPayload.gitCommit ?? null
+  };
+}
+
+function pickDefaultQuestionId(preferredId) {
+  if (preferredId && questionsById.value.has(preferredId)) return preferredId;
+  const recent = history.value.find((entry) => questionsById.value.has(entry.id));
+  return recent?.id ?? selectedSuiteQuestions.value[0]?.id ?? '';
+}
+
 async function bootstrap() {
   cancelAiRequest();
   const gen = ++_bootstrapGen;
   loading.value = true;
   bootError.value = '';
-  catalog.value = { questions: [], suites: [], meta: { years: [], topics: [], parts: [], statuses: [] } };
+  // Reset profile-scoped state, but keep whatever cached catalog we have
+  // for the current library so the UI doesn't flash empty during a profile
+  // switch.
   progress.value = { mastered: [], careless: [], meh: [], baffled: [], ignored: [], starred: [], attempts: {} };
   history.value = [];
   probeHistory.value = [];
@@ -575,19 +601,21 @@ async function bootstrap() {
   browseAiQuestionId.value = '';
   aiBlocked.value = '';
 
+  const libraryKey = libraryId.value || 'library';
+  const cachedCatalog = catalogCache.get(libraryKey);
+  catalog.value = cachedCatalog ?? EMPTY_CATALOG;
+
   try {
     if (isGuest.value) {
-      // Guest mode: only load catalog (no user data written).
-      // Keep whatever locale useI18n already resolved from localStorage/browser —
-      // guests have no server-side persistence, so do not force a default here.
-      const catalogData = await api.catalog();
-      if (gen !== _bootstrapGen) return; // a newer bootstrap superseded this one
-      catalog.value = catalogData;
-      if (catalogData?.server) {
-        serverState.value = catalogData.server;
-        if (catalogData.server.activeLibraryId) saveLibrary(catalogData.server.activeLibraryId);
-        appInfo.value = { ...appInfo.value, version: catalogData.server.appVersion || '', gitCommit: catalogData.server.gitCommit ?? null };
+      // Guest mode: only load catalog (no user data persisted server-side).
+      let catalogData = cachedCatalog;
+      if (!catalogData) {
+        catalogData = await api.catalog();
+        if (gen !== _bootstrapGen) return; // superseded
+        catalogCache.set(libraryKey, catalogData);
       }
+      catalog.value = catalogData;
+      applyServerStateFromPayload(catalogData?.server);
       config.value = { historyLimit: 500, examMinutes: 270, locale: locale.value, appVersion: serverState.value.appVersion, ui: { theme: theme.value } };
       aiMeta.value = {
         hasServerApiKey: false,
@@ -600,10 +628,30 @@ async function bootstrap() {
       selectedSuiteId.value = suites.value[0]?.id ?? '';
       browseSourceValue.value = selectedSuiteId.value ? `suite:${selectedSuiteId.value}` : 'status:baffled';
       currentQuestionId.value = selectedSuiteQuestions.value[0]?.id ?? '';
+    } else if (cachedCatalog) {
+      // Profile switch within a library that already has its catalog cached
+      // — fetch only user state so we don't re-download the question list.
+      const stateData = await api.state();
+      if (gen !== _bootstrapGen) return;
+      config.value = stateData.config;
+      if (config.value.locale) setLocale(config.value.locale);
+      if (config.value.ui?.theme) setTheme(config.value.ui.theme);
+      progress.value = stateData.progress;
+      history.value = stateData.history;
+      probeHistory.value = stateData.probeHistory;
+      examDrafts.value = stateData.examDrafts ?? { version: 1, drafts: [] };
+      aiMeta.value = stateData.aiMeta ?? aiMeta.value;
+      applyServerStateFromPayload(stateData.server);
+      selectedSuiteId.value = suites.value[0]?.id ?? '';
+      browseSourceValue.value = selectedSuiteId.value ? `suite:${selectedSuiteId.value}` : 'status:baffled';
+      currentQuestionId.value = pickDefaultQuestionId();
+      await loadAiHistory();
     } else {
+      // Cold load for a logged-in profile — fetch catalog + state in one call.
       const payload = await api.bootstrap();
       if (gen !== _bootstrapGen) return; // superseded
       catalog.value = payload.catalog;
+      catalogCache.set(libraryKey, payload.catalog);
       config.value = payload.state.config;
       if (config.value.locale) setLocale(config.value.locale);
       if (config.value.ui?.theme) setTheme(config.value.ui.theme);
@@ -612,11 +660,7 @@ async function bootstrap() {
       probeHistory.value = payload.state.probeHistory;
       examDrafts.value = payload.state.examDrafts ?? { version: 1, drafts: [] };
       aiMeta.value = payload.state.aiMeta ?? aiMeta.value;
-      if (payload.state.server) {
-        serverState.value = payload.state.server;
-        if (payload.state.server.activeLibraryId) saveLibrary(payload.state.server.activeLibraryId);
-        appInfo.value = { ...appInfo.value, version: payload.state.server.appVersion || '', gitCommit: payload.state.server.gitCommit ?? null };
-      }
+      applyServerStateFromPayload(payload.state.server);
       selectedSuiteId.value = suites.value[0]?.id ?? '';
       browseSourceValue.value = selectedSuiteId.value ? `suite:${selectedSuiteId.value}` : 'status:baffled';
       currentQuestionId.value = payload.firstQuestion?.id ?? selectedSuiteQuestions.value[0]?.id ?? '';
@@ -740,6 +784,7 @@ function applyCatalogData(nextCatalog) {
   const previousSuiteId = selectedSuiteId.value;
 
   catalog.value = nextCatalog;
+  catalogCache.set(libraryId.value || 'library', nextCatalog);
   selectedSuiteId.value = previousSuiteId && suitesById.value.has(previousSuiteId)
     ? previousSuiteId
     : (suites.value[0]?.id ?? '');
@@ -1814,6 +1859,7 @@ function scoreToNote(score) {
       :locale-options="localeOptions"
       :is-guest="effectiveGuest"
       :profile="displayProfileId"
+      :app-version="serverState.appVersion"
       @switch-mode="switchMode"
       @open-exam="examSetupOpen = true"
       @open-search="searchOpen = true"
@@ -2080,6 +2126,7 @@ function scoreToNote(score) {
       :server-state="serverState"
       :current-library-id="libraryId"
       :current-theme="theme"
+      :app-version="serverState.appVersion"
       @close="settingsOpen = false"
       @switch-profile="handleSwitchProfile"
       @switch-library="handleSwitchLibrary"

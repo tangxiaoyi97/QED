@@ -643,7 +643,11 @@ async function writeJson(filePath, value) {
   // gets ENOENT because the .tmp was already moved.
   const pending = writeLocks.get(filePath) ?? Promise.resolve();
   const next = pending.then(() => doWriteJson(filePath, value), () => doWriteJson(filePath, value));
-  writeLocks.set(filePath, next);
+  writeLocks.set(filePath, next.finally(() => {
+    if (writeLocks.get(filePath) === next) {
+      writeLocks.delete(filePath);
+    }
+  }));
   return next;
 }
 

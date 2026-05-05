@@ -1,8 +1,35 @@
 import fs from 'node:fs/promises';
 import { loadPdfjs } from './pdfjs.js';
 
-// Session-scoped in-memory cache: questionId → number[] (sorted score tiers, empty = fallback)
+// LRU cache keyed by `${absolutePath}:${mtimeMs}:${size}` so:
+// - the same Lösung file shared across libraries doesn't collide;
+// - replacing a Lösung PDF on disk invalidates its cached tiers.
+const CACHE_LIMIT = 128;
 const CACHE = new Map();
+
+function lruGet(key) {
+  if (!CACHE.has(key)) return undefined;
+  const value = CACHE.get(key);
+  // Refresh recency by re-inserting at the tail.
+  CACHE.delete(key);
+  CACHE.set(key, value);
+  return value;
+}
+
+function lruSet(key, value) {
+  if (CACHE.has(key)) CACHE.delete(key);
+  CACHE.set(key, value);
+  while (CACHE.size > CACHE_LIMIT) {
+    const oldest = CACHE.keys().next().value;
+    if (!oldest) break;
+    CACHE.delete(oldest);
+  }
+}
+
+async function fileSignature(filePath) {
+  const stat = await fs.stat(filePath);
+  return `${filePath}:${stat.mtimeMs}:${stat.size}`;
+}
 
 async function extractText(filePath) {
   const { getDocument } = await loadPdfjs();
@@ -112,23 +139,32 @@ export function parseScoresFromText(text) {
 /**
  * Returns score tiers for a question given the path to its Lösung PDF.
  * Returns [] when no PDF or nothing parseable (caller should use default range).
+ *
+ * The cache is keyed by file signature (path + mtime + size), so:
+ * - the same questionId across two libraries is cached separately;
+ * - replacing the PDF on disk transparently invalidates the cached entry.
  */
 export async function getScoreTiers(questionId, loPdfPath) {
-  if (CACHE.has(questionId)) return CACHE.get(questionId);
+  if (!loPdfPath) return [];
 
-  if (!loPdfPath) {
-    CACHE.set(questionId, []);
-    return [];
+  let signature;
+  try {
+    signature = await fileSignature(loPdfPath);
+  } catch {
+    return []; // file missing / unreadable
   }
+
+  const cached = lruGet(signature);
+  if (cached !== undefined) return cached;
 
   try {
     const text = await extractText(loPdfPath);
     const scores = parseScoresFromText(text);
-    CACHE.set(questionId, scores);
+    lruSet(signature, scores);
     return scores;
   } catch (error) {
     console.error(`[score-parser] ${questionId}: ${error.message}`);
-    CACHE.set(questionId, []);
+    lruSet(signature, []);
     return [];
   }
 }

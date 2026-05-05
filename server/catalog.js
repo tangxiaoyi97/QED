@@ -125,12 +125,21 @@ export async function loadCatalog(projectRoot, libraryRoot = path.join(projectRo
     lo: new Map()
   };
 
+  // Tracks names that didn't match the expected pattern. Surfaced as a
+  // single console.warn at the end so a typo (e.g. `[Au]` with full-width
+  // brackets, or `t1-3.pdf` missing the topic suffix) doesn't disappear
+  // silently into "missing question" land.
+  const skipped = { suiteDirs: [], questionFiles: [] };
+
   const suiteDirs = await safeReadDir(archiveRoot);
 
   for (const suiteDir of suiteDirs) {
     if (!suiteDir.isDirectory()) continue;
     const suiteInfo = parseSuiteDirectory(suiteDir.name);
-    if (!suiteInfo) continue;
+    if (!suiteInfo) {
+      skipped.suiteDirs.push(suiteDir.name);
+      continue;
+    }
 
     const suitePath = path.join(archiveRoot, suiteDir.name);
     const files = await safeReadDir(suitePath);
@@ -146,9 +155,13 @@ export async function loadCatalog(projectRoot, libraryRoot = path.join(projectRo
       }
 
       for (const file of files) {
-        if (!file.isFile() || !file.name.toLowerCase().endsWith('.pdf')) continue;
+        if (!file.isFile()) continue;
+        if (!file.name.toLowerCase().endsWith('.pdf')) continue;
         const parsed = parseQuestionFile(file.name, suiteInfo);
-        if (!parsed) continue;
+        if (!parsed) {
+          skipped.questionFiles.push(`${suiteDir.name}/${file.name}`);
+          continue;
+        }
 
         const absolutePath = path.join(suitePath, file.name);
         const allMapForKind = fileMapAll[suiteInfo.kind];
@@ -220,6 +233,23 @@ export async function loadCatalog(projectRoot, libraryRoot = path.join(projectRo
 
   const topics = Object.entries(TOPIC_LABELS).map(([id, label]) => ({ id, label }));
   const years = [...new Set(allQuestions.map((question) => question.year))].sort((a, b) => b - a);
+
+  if (skipped.suiteDirs.length > 0 || skipped.questionFiles.length > 0) {
+    const previewLimit = 8;
+    const suitePreview = skipped.suiteDirs.slice(0, previewLimit).join(', ');
+    const filePreview = skipped.questionFiles.slice(0, previewLimit).join(', ');
+    const suiteMore = skipped.suiteDirs.length > previewLimit
+      ? ` (+${skipped.suiteDirs.length - previewLimit} more)`
+      : '';
+    const fileMore = skipped.questionFiles.length > previewLimit
+      ? ` (+${skipped.questionFiles.length - previewLimit} more)`
+      : '';
+    console.warn(`[catalog] ${archiveRoot}: skipped ${skipped.suiteDirs.length} suite dir(s) and ${skipped.questionFiles.length} pdf file(s) due to unrecognized naming.`);
+    if (suitePreview) console.warn(`[catalog]   suite dirs: ${suitePreview}${suiteMore}`);
+    if (filePreview) console.warn(`[catalog]   files:      ${filePreview}${fileMore}`);
+    console.warn('[catalog]   expected suite name: "[au]<term>-<year>" or "[lo]<term>-<year>"');
+    console.warn('[catalog]   expected file name:  "[<year><term>]t<part>-<num>[-<topic>].pdf"');
+  }
 
   return {
     questions: allQuestions,

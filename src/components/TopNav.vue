@@ -1,8 +1,6 @@
 <script setup>
 import { useI18n } from '../composables/useI18n.js';
 
-const appVersion = __APP_VERSION__;
-
 const props = defineProps({
   mode: {
     type: String,
@@ -27,6 +25,10 @@ const props = defineProps({
   profile: {
     type: String,
     default: 'guest'
+  },
+  appVersion: {
+    type: String,
+    default: ''
   }
 });
 
@@ -41,7 +43,7 @@ const { t } = useI18n();
       <span class="brand-mark">Q</span>
       <div>
         <strong>{{ t('topNav.brandTitle') }}</strong>
-        <span>v{{ appVersion }}</span>
+        <span v-if="appVersion">v{{ appVersion }}</span>
       </div>
     </button>
 

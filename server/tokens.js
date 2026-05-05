@@ -21,6 +21,25 @@ export async function writeTokens(appRoot, tokens) {
   await writeTokenStore(appRoot, store);
 }
 
+/**
+ * Re-add a previously consumed normal token. Used to roll back a token
+ * consumption if the subsequent profile-creation step failed.
+ * Returns true if the token was added (or already present), false if invalid.
+ */
+export async function restoreToken(appRoot, token) {
+  const safeToken = typeof token === 'string' ? token.trim() : '';
+  if (!NORMAL_TOKEN_RE.test(safeToken)) return false;
+  const filePath = path.join(appRoot, 'tokens.json');
+  return withTokenLock(filePath, async () => {
+    const store = await readTokenStore(appRoot);
+    if (!store.tokens.includes(safeToken)) {
+      store.tokens.push(safeToken);
+      await writeTokenStore(appRoot, store);
+    }
+    return true;
+  });
+}
+
 export function generateToken() {
   const charSet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let result = '%';
