@@ -158,7 +158,11 @@ onBeforeUnmount(() => {
 });
 
 function scheduleRender() {
-  if (!pdfDocument) return;
+  // pageCount === 0 means loadDocument cleared it after clearCanvas() but before
+  // the new PDF loaded.  ResizeObserver fires asynchronously (between frames), so
+  // by the time it calls us, pageCount is already 0 — bail to avoid scheduling a
+  // stale render that advances renderToken and makes loadDocument's token invalid.
+  if (!pdfDocument || pageCount.value === 0) return;
   if (resizeTimer) window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
     renderToken += 1;
@@ -169,7 +173,13 @@ function scheduleRender() {
 async function loadDocument() {
   renderToken += 1;
   const token = renderToken;
+  // Kill any queued resize re-render before it can advance renderToken mid-load.
+  if (resizeTimer) { window.clearTimeout(resizeTimer); resizeTimer = null; }
   await nextTick();
+  // Cancel before detaching the canvas: WebKit flushes canvas commands
+  // asynchronously and misbehaves when the element disappears mid-render.
+  await cancelActiveRender();
+  if (token !== renderToken) return;
   clearCanvas();
   errorMessage.value = '';
   pageCount.value = 0;
@@ -235,6 +245,14 @@ async function renderPage(existingToken = renderToken) {
   await cancelActiveRender();
   if (token !== renderToken) return;
 
+  // Kill any queued resize re-render so it can't advance renderToken mid-render,
+  // then pause the ResizeObserver for the duration of canvas surgery.  In Safari,
+  // pdf-shell is content-sized under flex (height:100% resolves against content),
+  // so clearCanvas() and appendChild() each trigger the observer — creating a
+  // loop where every render schedules another one and the answer never appears.
+  if (resizeTimer) { window.clearTimeout(resizeTimer); resizeTimer = null; }
+  resizeObserver?.disconnect();
+
   clearCanvas();
   loading.value = true;
   try {
@@ -278,6 +296,14 @@ async function renderPage(existingToken = renderToken) {
     if (token === renderToken) errorMessage.value = error.message || t('pdf.renderFailed');
   } finally {
     if (token === renderToken) loading.value = false;
+    // Reconnect the ResizeObserver.  Snapshot the current size first so the
+    // observer's initial delivery (which fires synchronously on the next frame)
+    // doesn't schedule a spurious re-render when the size hasn't changed.
+    if (viewport.value && resizeObserver) {
+      const box = viewport.value.getBoundingClientRect();
+      lastRenderBox = { width: Math.round(box.width), height: Math.round(box.height) };
+      resizeObserver.observe(viewport.value);
+    }
   }
 }
 
